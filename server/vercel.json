@@ -3,9 +3,19 @@
   "version": 2,
   "buildCommand": "npm run vercel-build",
   "functions": {
-    "api/**/*.ts": {
+    "api/index.ts": {
       "maxDuration": 60,
       "includeFiles": "prisma/**"
     }
-  }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api/index.ts"
+    },
+    {
+      "src": "/api",
+      "dest": "api/index.ts"
+    }
+  ]
 }
