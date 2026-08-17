@@ -31,17 +31,48 @@ interface LedgerSummary {
   entries: LedgerEntry[];
 }
 
+interface MarketRate {
+  effectiveDate: string;
+  farmRate: number | string;
+  finalRate: number | string;
+}
+
+type PricingBaseRateType = 'FARM' | 'FINAL';
+type PricingOffsetDirection = 'PLUS' | 'MINUS';
+
 const fmt = (n: string | number) => 'Rs. ' + Number(n ?? 0).toLocaleString('en-PK');
 const emptyForm = {
   shopName: '',
   contact: '',
   address: '',
   openingBalance: '0',
-  pricingBaseRateType: 'FARM' as 'FARM' | 'FINAL',
-  pricingOffsetDirection: 'MINUS' as 'PLUS' | 'MINUS',
+  pricingBaseRateType: 'FARM' as PricingBaseRateType,
+  pricingOffsetDirection: 'MINUS' as PricingOffsetDirection,
   pricingOffsetValue: '0',
+  pricingTargetRate: '',
 };
 const CACHE_KEY = 'customers-page';
+
+const getPKTDate = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+
+const formatRateInput = (value: number) => Number.isFinite(value) ? String(Number(value.toFixed(2))) : '';
+
+function calculateTargetRate(
+  form: Pick<typeof emptyForm, 'pricingBaseRateType' | 'pricingOffsetDirection' | 'pricingOffsetValue'>,
+  marketRate: MarketRate | null,
+) {
+  if (!marketRate) return '';
+  const baseRate = Number(form.pricingBaseRateType === 'FARM' ? marketRate.farmRate : marketRate.finalRate);
+  const offset = Number(form.pricingOffsetValue || 0);
+  if (!Number.isFinite(baseRate) || !Number.isFinite(offset)) return '';
+  return formatRateInput(form.pricingOffsetDirection === 'PLUS' ? baseRate + offset : baseRate - offset);
+}
 
 function formatLedgerNarration(row: LedgerEntry) {
   if (row.referenceType === 'INVOICE' && row.narration?.startsWith('Invoice ')) return row.narration;
@@ -71,6 +102,8 @@ export default function CustomersPage() {
   const [saving, setSaving] = useState(false);
   const [statusSavingId, setStatusSavingId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [marketRate, setMarketRate] = useState<MarketRate | null>(null);
+  const [marketRateLoading, setMarketRateLoading] = useState(true);
 
   const load = useCallback(async (force = false) => {
     if (!force) {
@@ -93,6 +126,23 @@ export default function CustomersPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    setMarketRateLoading(true);
+    api.get<MarketRate>(`/market-rates/effective?date=${getPKTDate()}`)
+      .then((response) => { if (active) setMarketRate(response.data); })
+      .catch(() => { if (active) setMarketRate(null); })
+      .finally(() => { if (active) setMarketRateLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!marketRate) return;
+    setForm((previous) => previous.pricingTargetRate
+      ? previous
+      : { ...previous, pricingTargetRate: calculateTargetRate(previous, marketRate) });
+  }, [marketRate]);
 
   const openLedger = useCallback(async (c: Customer) => {
     setLedgerCustomer(c);
@@ -132,7 +182,7 @@ export default function CustomersPage() {
 
   const openEdit = (c: Customer) => {
     setEditCustomer(c);
-    setForm({
+    const nextForm = {
       shopName: c.shopName,
       contact: c.contact ?? '',
       address: c.address ?? '',
@@ -140,6 +190,31 @@ export default function CustomersPage() {
       pricingBaseRateType: c.pricingBaseRateType ?? 'FARM',
       pricingOffsetDirection: c.pricingOffsetDirection ?? 'MINUS',
       pricingOffsetValue: String(c.pricingOffsetValue ?? 0),
+      pricingTargetRate: '',
+    } satisfies typeof emptyForm;
+    setForm({ ...nextForm, pricingTargetRate: calculateTargetRate(nextForm, marketRate) });
+  };
+
+  const updatePricingFields = (changes: Partial<typeof emptyForm>) => {
+    setForm((previous) => {
+      const next = { ...previous, ...changes };
+      return { ...next, pricingTargetRate: calculateTargetRate(next, marketRate) };
+    });
+  };
+
+  const handleTargetRateChange = (targetRate: string) => {
+    setForm((previous) => {
+      const next = { ...previous, pricingTargetRate: targetRate };
+      if (!marketRate || targetRate === '') return next;
+      const baseRate = Number(previous.pricingBaseRateType === 'FARM' ? marketRate.farmRate : marketRate.finalRate);
+      const target = Number(targetRate);
+      if (!Number.isFinite(baseRate) || !Number.isFinite(target)) return next;
+      const difference = target - baseRate;
+      return {
+        ...next,
+        pricingOffsetDirection: difference < 0 ? 'MINUS' : 'PLUS',
+        pricingOffsetValue: formatRateInput(Math.abs(difference)),
+      };
     });
   };
 
@@ -147,6 +222,8 @@ export default function CustomersPage() {
     e.preventDefault();
     if (!form.shopName) { toast.error('Shop name required'); return; }
     if (form.contact && !isPhoneNumberLike(form.contact)) { toast.error('Enter a valid contact number'); return; }
+    if (!Number.isFinite(Number(form.pricingOffsetValue)) || Number(form.pricingOffsetValue) < 0) { toast.error('Enter a valid pricing adjustment'); return; }
+    if (marketRate && (!form.pricingTargetRate || !Number.isFinite(Number(form.pricingTargetRate)))) { toast.error('Enter a valid final rate'); return; }
     setSaving(true);
     try {
       await api.post('/customers', {
@@ -167,6 +244,8 @@ export default function CustomersPage() {
     e.preventDefault();
     if (!editCustomer) return;
     if (form.contact && !isPhoneNumberLike(form.contact)) { toast.error('Enter a valid contact number'); return; }
+    if (!Number.isFinite(Number(form.pricingOffsetValue)) || Number(form.pricingOffsetValue) < 0) { toast.error('Enter a valid pricing adjustment'); return; }
+    if (marketRate && (!form.pricingTargetRate || !Number.isFinite(Number(form.pricingTargetRate)))) { toast.error('Enter a valid final rate'); return; }
     setSaving(true);
     try {
       await api.patch(`/customers/${editCustomer.id}`, {
@@ -359,14 +438,18 @@ export default function CustomersPage() {
         <div className="text-[10px] font-medium text-slate-400">Use 10 to 15 digits, with an optional + and spaces.</div>
       </div>
       <div className="sm:col-span-2 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-        <div className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">Automatic Pricing Rule</div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">Automatic Pricing Rule</div>
+          <div className="text-[10px] font-bold text-emerald-700">{marketRateLoading ? 'Loading today\'s rates…' : marketRate ? `Today\'s farm rate: Rs. ${Number(marketRate.farmRate).toLocaleString('en-PK')}` : 'Set today\'s rates in Market Pricing first'}</div>
+        </div>
+        <div className="mb-3 text-xs font-medium text-emerald-800/75">Choose a benchmark, then use the editable final rate to set the exact customer price.</div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <div>
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Base Rate</label>
             <select
               className="mt-1 w-full rounded-xl border border-emerald-100 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-emerald-500"
               value={form.pricingBaseRateType}
-              onChange={e => setForm(f => ({ ...f, pricingBaseRateType: e.target.value as 'FARM' | 'FINAL' }))}
+              onChange={e => updatePricingFields({ pricingBaseRateType: e.target.value as PricingBaseRateType })}
             >
               <option value="FARM">Farm Rate</option>
               <option value="FINAL">Final Rate</option>
@@ -377,7 +460,7 @@ export default function CustomersPage() {
             <select
               className="mt-1 w-full rounded-xl border border-emerald-100 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-emerald-500"
               value={form.pricingOffsetDirection}
-              onChange={e => setForm(f => ({ ...f, pricingOffsetDirection: e.target.value as 'PLUS' | 'MINUS' }))}
+              onChange={e => updatePricingFields({ pricingOffsetDirection: e.target.value as PricingOffsetDirection })}
             >
               <option value="MINUS">Minus</option>
               <option value="PLUS">Plus</option>
@@ -391,11 +474,26 @@ export default function CustomersPage() {
               step="0.01"
               className="mt-1 w-full rounded-xl border border-emerald-100 bg-white px-3 py-2.5 text-sm font-bold outline-none focus:border-emerald-500"
               value={form.pricingOffsetValue}
-              onChange={e => setForm(f => ({ ...f, pricingOffsetValue: e.target.value }))}
+              onChange={e => updatePricingFields({ pricingOffsetValue: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-500"><span>Final Rate / kg</span><span className="text-emerald-700">Editable</span></label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className="mt-1 w-full rounded-xl border-2 border-emerald-300 bg-white px-3 py-2.5 text-sm font-black text-emerald-900 outline-none shadow-sm focus:border-emerald-600 focus:ring-4 focus:ring-emerald-500/10"
+              value={form.pricingTargetRate}
+              onChange={e => handleTargetRateChange(e.target.value)}
+              placeholder={marketRate ? 'e.g. 342' : 'Set market rate first'}
             />
           </div>
         </div>
-        <div className="mt-2 text-[10px] font-medium text-emerald-700">Example: Farm Rate minus Rs. 6.</div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-emerald-200/70 pt-3 text-[11px] font-semibold text-emerald-800">
+          <span>{marketRate ? `${form.pricingBaseRateType === 'FARM' ? 'Farm' : 'Final'} rate ${form.pricingOffsetDirection === 'PLUS' ? 'plus' : 'minus'} Rs. ${form.pricingOffsetValue || '0'} =` : 'Final rate preview will appear after market rates are configured.'}</span>
+          {marketRate && <strong className="rounded-lg bg-white px-2.5 py-1 text-sm font-black text-emerald-900">Rs. {form.pricingTargetRate || '—'} / kg</strong>}
+        </div>
       </div>
       <div>
         <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-1.5 block">Initial Opening Balance</label>
@@ -431,7 +529,7 @@ export default function CustomersPage() {
         </div>
         <button 
           className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200 transition-all active:scale-95 self-start"
-          onClick={() => { setForm(emptyForm); setCreateOpen(true); }}
+          onClick={() => { setForm({ ...emptyForm, pricingTargetRate: calculateTargetRate(emptyForm, marketRate) }); setCreateOpen(true); }}
         >
           <UserPlus size={18} /> Add New Account
         </button>
