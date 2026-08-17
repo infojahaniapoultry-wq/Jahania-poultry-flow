@@ -9,6 +9,7 @@ import { Plus, RefreshCw, ShoppingCart, Truck, Scale, DollarSign, CreditCard, In
 import DatePicker from '@/components/DatePicker';
 import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
 import { getCachedPageData, setCachedPageData } from '@/lib/page-cache';
+import { BANK_OPTIONS, ONLINE_PROVIDER_OPTIONS } from '../finance/shared';
 
 interface Vendor {
   id: number;
@@ -42,7 +43,7 @@ interface StockSummary {
 }
 
 type PaymentMode = 'CASH' | 'UDHAR' | 'CHEQUE' | 'ONLINE';
-type OnlineProvider = 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'OTHER';
+type OnlineProvider = 'JAZZCASH' | 'EASYPAISA' | 'NAYAPAY' | 'BANK_TRANSFER' | 'OTHER';
 
 const getPKTDate = () => {
   const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' }));
@@ -570,7 +571,10 @@ export default function PurchasesPage() {
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Bank Name</label>
-                      <input name="bankName" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold" value={form.bankName} onChange={handleChange} />
+                      <select name="bankName" className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold" value={form.bankName} onChange={handleChange}>
+                        <option value="">Select bank</option>
+                        {BANK_OPTIONS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+                      </select>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Maturity Date</label>
@@ -586,10 +590,7 @@ export default function PurchasesPage() {
                 <div className="space-y-2">
                   <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">Platform / Provider</label>
                   <select name="paymentProvider" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold" value={form.paymentProvider} onChange={handleChange}>
-                    <option value="JAZZCASH">JazzCash</option>
-                    <option value="EASYPAISA">Easypaisa</option>
-                    <option value="BANK_TRANSFER">Bank Transfer</option>
-                    <option value="OTHER">Other</option>
+                    {ONLINE_PROVIDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </div>
                 <div className="space-y-2">
