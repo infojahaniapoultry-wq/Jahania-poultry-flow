@@ -58,13 +58,14 @@ export default function StatCard({ title, value, subtitle, trend, trendValue, ic
   }
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border p-5 shadow-[var(--shadow)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow-lg)]" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-      <div className={`absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-30 blur-2xl transition-opacity duration-300 group-hover:opacity-50 ${s.bg}`} />
+    <div className="group relative overflow-hidden rounded-2xl border p-5 shadow-[var(--shadow-soft)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lg)]" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+      <div className={`absolute -right-8 -top-8 h-28 w-28 rounded-full opacity-30 blur-2xl transition-opacity duration-300 group-hover:opacity-60 ${s.bg}`} />
+      <div className={`absolute inset-x-0 top-0 h-1 ${s.bg.replace('bg-', 'bg-')}`} />
       
       <div className="flex justify-between items-start relative z-10">
         <div>
           <p className="eyebrow mb-1">{title}</p>
-          <div className="mb-2 text-2xl font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>
+          <div className="mb-2 text-[1.7rem] font-black tracking-[-.04em]" style={{ color: 'var(--text-primary)' }}>
             {value}
           </div>
           
@@ -82,7 +83,7 @@ export default function StatCard({ title, value, subtitle, trend, trendValue, ic
             )}
             
             {subtitle && (
-              <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{subtitle}</span>
+              <span className="text-[11px] font-bold" style={{ color: 'var(--text-muted)' }}>{subtitle}</span>
             )}
           </div>
         </div>

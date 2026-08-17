@@ -1,11 +1,42 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import api from '@/lib/api';
+import {
+  formatNotificationAmount,
+  notificationCategoryMeta,
+  type PendingNotificationCategory,
+  type PendingNotificationsResponse,
+} from '@/lib/notifications';
 import Sidebar from './Sidebar';
-import { Menu, Bell, Search, User, Sun, Moon, Command } from 'lucide-react';
+import { BUSINESS_DATA_UPDATED_EVENT } from '@/lib/business-events';
+import { Menu, Bell, User, Sun, Moon, ChevronRight, CircleHelp, ArrowUpRight, X } from 'lucide-react';
 
 const adminOnlyRoutes = ['/reports', '/pricing', '/users'];
+
+const notificationMiniClasses: Record<PendingNotificationCategory, string> = {
+  CHEQUE: 'bg-amber-50 text-amber-700',
+  CUSTOMER_UDHAAR: 'bg-rose-50 text-rose-700',
+  VENDOR_UDHAAR: 'bg-blue-50 text-blue-700',
+  DRIVER_EXPENSE: 'bg-violet-50 text-violet-700',
+  ONLINE_PAYMENT: 'bg-emerald-50 text-emerald-700',
+};
+
+const pageMeta: Record<string, { label: string; section: string }> = {
+  '/dashboard': { label: 'Dashboard', section: 'Overview' },
+  '/purchases': { label: 'Register', section: 'Operations' },
+  '/invoices': { label: 'Invoices', section: 'Operations' },
+  '/customers': { label: 'Customers', section: 'Parties' },
+  '/vendors': { label: 'Vendors', section: 'Parties' },
+  '/drivers': { label: 'Drivers', section: 'Parties' },
+  '/transactions': { label: 'Transactions', section: 'Finance' },
+  '/expenses': { label: 'Expense Management', section: 'Finance' },
+  '/reports': { label: 'System Reports', section: 'Insights' },
+  '/pricing': { label: 'Market Pricing', section: 'Admin' },
+  '/users': { label: 'User Controls', section: 'Admin' },
+  '/notifications': { label: 'Pending Work', section: 'Workspace' },
+};
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -15,6 +46,43 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const [isDark, setIsDark] = useState(false);
+  const [notifications, setNotifications] = useState<PendingNotificationsResponse | null>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const response = await api.get<PendingNotificationsResponse>('/notifications');
+      setNotifications(response.data);
+      return response.data;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const playNotificationSound = useCallback(() => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const context = new AudioContextClass();
+      const now = context.currentTime;
+      [659.25, 783.99].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, now + index * 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.08, now + index * 0.12 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.12 + 0.22);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(now + index * 0.12);
+        oscillator.stop(now + index * 0.12 + 0.24);
+      });
+      window.setTimeout(() => { void context.close(); }, 600);
+    } catch {
+      // Browsers can block sound until a user gesture; the visual alert still works.
+    }
+  }, []);
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem('poultryflow-theme');
@@ -56,6 +124,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [pathname, isMobile]);
 
   useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const showWelcomeAlert = window.sessionStorage.getItem('poultryflow-login-alert') === '1';
+    if (showWelcomeAlert) window.sessionStorage.removeItem('poultryflow-login-alert');
+
+    void loadNotifications().then((data) => {
+      if (cancelled || !data || !showWelcomeAlert || data.totalCount === 0) return;
+      setWelcomeOpen(true);
+      playNotificationSound();
+    });
+
+    const refreshNotifications = () => { void loadNotifications(); };
+    window.addEventListener(BUSINESS_DATA_UPDATED_EVENT, refreshNotifications);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(BUSINESS_DATA_UPDATED_EVENT, refreshNotifications);
+    };
+  }, [loadNotifications, playNotificationSound, user]);
+
+  useEffect(() => {
     if (!loading && !user) {
       router.replace('/login');
       return;
@@ -86,6 +174,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
+  const currentPage = pageMeta[pathname] ?? { label: 'Workspace', section: 'Jahania Poultry' };
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-secondary)' }}>
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} isMobile={isMobile} />
@@ -96,7 +186,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }`}
       >
         {/* Top Header */}
-        <header className="no-print sticky top-0 z-40 flex items-center justify-between border-b px-4 py-3 backdrop-blur-xl sm:px-6" style={{ background: 'color-mix(in srgb, var(--bg-card) 88%, transparent)', borderColor: 'var(--border)' }}>
+        <header className="no-print sticky top-0 z-40 flex min-h-[76px] items-center justify-between border-b px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8" style={{ background: 'color-mix(in srgb, var(--bg-card) 88%, transparent)', borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -106,33 +196,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Menu size={20} />
             </button>
-            
-            {/* Contextual Page Title (Mobile) */}
-            {(!isSidebarOpen || isMobile) && (
-              <div className="block font-black tracking-tight sm:hidden" style={{ color: 'var(--text-primary)' }}>
-                PoultryFlow
-              </div>
-            )}
+
+            <div className="hidden items-center gap-2 text-xs font-bold sm:flex" style={{ color: 'var(--text-muted)' }}>
+              <span>Workspace</span><ChevronRight size={13} /><span style={{ color: 'var(--text-primary)' }}>{currentPage.label}</span>
+            </div>
+            {(!isSidebarOpen || isMobile) && <div className="block font-black tracking-tight sm:hidden" style={{ color: 'var(--text-primary)' }}>{currentPage.label}</div>}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            {/* Search - Desktop only (not yet implemented) */}
-            <div className="hidden items-center gap-2 rounded-xl border px-3.5 py-2 text-sm opacity-80 md:flex" style={{ background: 'var(--bg-muted)', borderColor: 'var(--border)', color: 'var(--text-muted)' }} title="Search coming soon">
-              <Search size={16} />
-              <span className="w-36 select-none lg:w-56">Search records...</span>
-              <span className="ml-2 hidden items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold lg:flex" style={{ borderColor: 'var(--border)' }}><Command size={10} />K</span>
-            </div>
-
-            <button className="relative rounded-xl p-2.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10" style={{ color: 'var(--text-muted)' }} title="Notifications (coming soon)" disabled>
+            <button onClick={() => router.push('/notifications')} className="relative rounded-xl p-2.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10" style={{ color: notifications?.totalCount ? 'var(--text-primary)' : 'var(--text-muted)' }} title={notifications?.totalCount ? `${notifications.totalCount} pending items` : 'Notifications'} aria-label="Open notifications">
               <Bell size={20} />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-amber-500" />
+              {Boolean(notifications?.totalCount) && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-amber-500 px-1 text-center text-[9px] font-black leading-5 text-white ring-2 ring-[var(--bg-card)]">{notifications?.totalCount && notifications.totalCount > 99 ? '99+' : notifications?.totalCount}</span>}
             </button>
+
+            <button className="hidden rounded-xl p-2.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10 sm:block" style={{ color: 'var(--text-muted)' }} title="Help"><CircleHelp size={18} /></button>
 
             <button onClick={toggleTheme} className="rounded-xl p-2.5 transition-colors hover:bg-black/5 dark:hover:bg-white/10" style={{ color: 'var(--text-secondary)' }} title={isDark ? 'Use light theme' : 'Use dark theme'} aria-label="Toggle color theme">
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             
-            <div className="h-8 w-[1px] bg-slate-200 mx-1"></div>
+            <div className="mx-1 h-8 w-px" style={{ background: 'var(--border)' }}></div>
             
             <div className="flex items-center gap-2">
               <div className="hidden text-right sm:block">
@@ -145,6 +228,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        {welcomeOpen && notifications && (
+          <div className="fixed right-4 top-[86px] z-[60] w-[min(390px,calc(100vw-2rem))] overflow-hidden rounded-3xl border shadow-2xl" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', boxShadow: '0 24px 70px rgba(23,38,31,.2)' }}>
+            <div className="flex items-start justify-between border-b px-5 py-4" style={{ borderColor: 'var(--border)' }}>
+              <div><div className="mb-1 text-[10px] font-black uppercase tracking-[.18em] text-amber-600">PoultryFlow alert</div><h2 className="text-lg font-black" style={{ color: 'var(--text-primary)' }}>Pending work needs attention</h2><p className="mt-1 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{notifications.totalCount} open item{notifications.totalCount === 1 ? '' : 's'} across your operation.</p></div>
+              <button onClick={() => setWelcomeOpen(false)} className="rounded-xl p-2 transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: 'var(--text-muted)' }} aria-label="Close alert"><X size={17} /></button>
+            </div>
+            <div className="space-y-2 p-3">
+              {notifications.items.slice(0, 4).map((notification) => {
+                const meta = notificationCategoryMeta[notification.category];
+                return <button key={notification.id} onClick={() => { setWelcomeOpen(false); router.push(notification.href); }} className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition hover:bg-black/[.04] dark:hover:bg-white/[.06]"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[10px] font-black ${notificationMiniClasses[notification.category]}`}>{meta.label.slice(0, 1)}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-black" style={{ color: 'var(--text-primary)' }}>{notification.title}</span><span className="block truncate text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>{notification.description}</span></span><span className="shrink-0 text-xs font-black text-red-600">{formatNotificationAmount(notification.amount)}</span></button>;
+              })}
+            </div>
+            <div className="flex items-center justify-between border-t px-5 py-3" style={{ borderColor: 'var(--border)' }}><span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>Total pending: {formatNotificationAmount(notifications.totalAmount)}</span><button onClick={() => { setWelcomeOpen(false); router.push('/notifications'); }} className="inline-flex items-center gap-1 text-xs font-black text-emerald-700">View all <ArrowUpRight size={14} /></button></div>
+          </div>
+        )}
 
         {/* Content Area */}
         <div className="mx-auto w-full max-w-[1600px] flex-1 p-4 sm:p-6 lg:p-8">

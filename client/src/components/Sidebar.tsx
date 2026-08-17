@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Activity,
   Sparkles,
+  WalletCards,
 } from 'lucide-react';
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
@@ -29,7 +30,7 @@ const coreSections: NavSection[] = [
   { title: 'Overview', items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }] },
   { title: 'Operations', items: [{ href: '/purchases', label: 'Register', icon: ShoppingCart }, { href: '/invoices', label: 'Invoices', icon: FileText }] },
   { title: 'Parties', items: [{ href: '/customers', label: 'Customers', icon: Users }, { href: '/vendors', label: 'Vendors', icon: Package2 }, { href: '/drivers', label: 'Drivers', icon: Car }] },
-  { title: 'Finance', items: [{ href: '/transactions', label: 'Transactions', icon: ArrowLeftRight }, { href: '/finance/credit', label: 'Credit Management', icon: CreditCard }, { href: '/finance/cheques', label: 'Cheque Registry', icon: FileText }, { href: '/finance/online', label: 'Online Payments', icon: ArrowLeftRight }] },
+  { title: 'Finance', items: [{ href: '/transactions', label: 'Transactions', icon: ArrowLeftRight }, { href: '/expenses', label: 'Expense Management', icon: WalletCards }, { href: '/finance/credit', label: 'Credit Management', icon: CreditCard }, { href: '/finance/cheques', label: 'Cheque Registry', icon: FileText }, { href: '/finance/online', label: 'Online Payments', icon: ArrowLeftRight }] },
 ];
 
 const adminSections: NavSection[] = [
