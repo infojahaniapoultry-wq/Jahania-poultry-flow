@@ -8,7 +8,7 @@ import { clearAuthSession, loadStoredAuthToken } from './auth-session';
 const configuredApiUrl =
   process.env.NEXT_PUBLIC_API_URL ||
   (process.env.NODE_ENV === 'production'
-    ? 'https://jahania-poultry-flow-back-olive.vercel.app/api'
+    ? 'https://jahania-poultry-flow-beta.vercel.app/api'
     : 'http://localhost:3010/api');
 const apiBaseUrl = configuredApiUrl.replace(/\/+$/, '').endsWith('/api')
   ? configuredApiUrl.replace(/\/+$/, '')
