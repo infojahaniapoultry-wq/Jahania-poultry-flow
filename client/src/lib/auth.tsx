@@ -84,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await api.post('/auth/login', { email, password });
     const { accessToken, user: userData } = res.data as { accessToken: string; user: StoredAuthUser };
     saveAuthSession(accessToken, userData);
+    window.sessionStorage.setItem('poultryflow-login-alert', '1');
     setToken(accessToken);
     setUser(userData);
     return userData;
@@ -92,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     clearAllCachedPageData();
     localStorage.removeItem(REPORT_CACHE_STORAGE_KEY);
+    window.sessionStorage.removeItem('poultryflow-login-alert');
     clearAuthSession();
     setToken(null);
     setUser(null);
