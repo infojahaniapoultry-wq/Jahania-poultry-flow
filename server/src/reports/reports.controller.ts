@@ -88,6 +88,7 @@ export class ReportsController {
   }
 
   @Get('expense-summary')
+  @Roles(Role.ADMIN, Role.DATA_ENTRY)
   getExpenseSummary(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,

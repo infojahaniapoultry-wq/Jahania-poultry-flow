@@ -38,6 +38,8 @@ export class VouchersService {
       vendorId?: number;
       amount: number;
       paymentMode: PaymentMode;
+      paymentReference?: string;
+      paymentProvider?: OnlineProvider;
     },
   ) {
     let remaining = Math.max(0, params.amount);
@@ -79,12 +81,22 @@ export class VouchersService {
               ? PaymentStatus.COMPLETED
               : PaymentStatus.OUTSTANDING
             : nextPaymentStatus;
+        const paymentData =
+          params.paymentMode === PaymentMode.CASH || !params.paymentReference
+            ? {}
+            : {
+                paymentReference: params.paymentReference,
+                ...(params.paymentProvider
+                  ? { paymentProvider: params.paymentProvider }
+                  : {}),
+              };
 
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
             settledAmount: nextSettled,
             paymentStatus: nextStatus,
+            ...paymentData,
           },
         });
 
@@ -125,12 +137,22 @@ export class VouchersService {
               ? PaymentStatus.COMPLETED
               : PaymentStatus.OUTSTANDING
             : nextPaymentStatus;
+        const paymentData =
+          params.paymentMode === PaymentMode.CASH || !params.paymentReference
+            ? {}
+            : {
+                paymentReference: params.paymentReference,
+                ...(params.paymentProvider
+                  ? { paymentProvider: params.paymentProvider }
+                  : {}),
+              };
 
         await tx.purchaseEntry.update({
           where: { id: purchase.id },
           data: {
             settledAmount: nextSettled,
             paymentStatus: nextStatus,
+            ...paymentData,
           },
         });
 
@@ -190,6 +212,12 @@ export class VouchersService {
         if (!customer)
           throw new NotFoundException(`Customer #${dto.customerId} not found`);
 
+        if (isSettlement && amount > toNumber(customer.currentBalance)) {
+          throw new BadRequestException(
+            'Settlement amount cannot exceed the customer udhar balance',
+          );
+        }
+
         customerName = customer.shopName;
 
         await postCustomerLedger(tx, {
@@ -211,6 +239,12 @@ export class VouchersService {
         if (!vendor)
           throw new NotFoundException(`Vendor #${dto.vendorId} not found`);
 
+        if (isSettlement && amount > toNumber(vendor.currentBalance)) {
+          throw new BadRequestException(
+            'Settlement amount cannot exceed the vendor udhar balance',
+          );
+        }
+
         vendorName = vendor.name;
 
         await postVendorLedger(tx, {
@@ -230,6 +264,10 @@ export class VouchersService {
           vendorId: dto.vendorId,
           amount,
           paymentMode,
+          paymentReference:
+            paymentMode === PaymentMode.CASH ? undefined : voucherNo,
+          paymentProvider:
+            paymentMode === PaymentMode.ONLINE ? paymentProvider : undefined,
         });
       }
 

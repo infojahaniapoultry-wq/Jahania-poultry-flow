@@ -104,6 +104,7 @@ describe('VouchersService credit settlement', () => {
       data: {
         settledAmount: 1500,
         paymentStatus: PaymentStatus.PENDING,
+        paymentReference: 'REC-00001',
       },
     });
     expect(tx.chequeLog.create).toHaveBeenCalledWith({
@@ -121,6 +122,14 @@ describe('VouchersService credit settlement', () => {
 
   it('allocates vendor settlement across purchases and creates an online payment log', async () => {
     const tx = createPrismaMock({
+      vendor: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 7,
+          name: 'Sindh Public Kanta Thatta',
+          currentBalance: 2000,
+        }),
+        update: jest.fn().mockResolvedValue({ id: 7 }),
+      },
       customer: {
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -163,6 +172,8 @@ describe('VouchersService credit settlement', () => {
       data: {
         settledAmount: 1200,
         paymentStatus: PaymentStatus.PENDING,
+        paymentReference: 'DEB-00001',
+        paymentProvider: OnlineProvider.EASYPAISA,
       },
     });
     expect(tx.onlinePaymentLog.create).toHaveBeenCalledWith({
@@ -179,6 +190,14 @@ describe('VouchersService credit settlement', () => {
 
   it('includes partial purchase balances when settling vendor credit', async () => {
     const tx = createPrismaMock({
+      vendor: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 7,
+          name: 'Sindh Public Kanta Thatta',
+          currentBalance: 2000,
+        }),
+        update: jest.fn().mockResolvedValue({ id: 7 }),
+      },
       customer: {
         findUnique: jest.fn(),
         update: jest.fn(),

@@ -164,6 +164,134 @@ describe('ReportsService dashboard summary', () => {
     expect(result.closingBalance).toBe(100);
   });
 
+  it('shows one cash invoice row instead of debit plus payment rows', async () => {
+    const prisma = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 4,
+          shopName: 'A-1 Traders',
+          openingBalance: 0,
+        }),
+      },
+      customerLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 10,
+            date: new Date('2026-05-02T00:00:00.000Z'),
+            createdAt: new Date('2026-05-02T00:01:00.000Z'),
+            amount: 100,
+            type: 'DEBIT',
+            narration: 'Invoice INVOICE-00001',
+            referenceType: 'INVOICE',
+            referenceId: 1,
+          },
+          {
+            id: 11,
+            date: new Date('2026-05-02T00:00:00.000Z'),
+            createdAt: new Date('2026-05-02T00:02:00.000Z'),
+            amount: 100,
+            type: 'CREDIT',
+            narration: 'Payment for invoice INVOICE-00001',
+            referenceType: 'INVOICE_PAYMENT',
+            referenceId: 1,
+          },
+        ]),
+      },
+      invoice: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              id: 1,
+              totalAmount: 100,
+              settledAmount: 100,
+              paymentMode: 'CASH',
+              paymentStatus: 'COMPLETED',
+            },
+          ])
+          .mockResolvedValueOnce([
+            { id: 1, items: [{ netWeight: 1, ratePerKg: 100 }] },
+          ]),
+      },
+    };
+
+    const service = new ReportsService(prisma as any);
+    const result = await service.getCustomerStatement(4);
+
+    expect(result.ledger).toHaveLength(1);
+    expect(result.ledger[0]).toEqual(
+      expect.objectContaining({ type: 'CASH', amount: 100, runningBalance: 0 }),
+    );
+  });
+
+  it('shows an udhaar row followed by a cleared udhaar settlement row', async () => {
+    const prisma = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 4,
+          shopName: 'A-1 Traders',
+          openingBalance: 0,
+        }),
+      },
+      customerLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 20,
+            date: new Date('2026-05-03T00:00:00.000Z'),
+            createdAt: new Date('2026-05-03T00:01:00.000Z'),
+            amount: 100,
+            type: 'DEBIT',
+            narration: 'Invoice INVOICE-00002',
+            referenceType: 'INVOICE',
+            referenceId: 2,
+          },
+          {
+            id: 21,
+            date: new Date('2026-05-04T00:00:00.000Z'),
+            createdAt: new Date('2026-05-04T00:01:00.000Z'),
+            amount: 100,
+            type: 'CREDIT',
+            narration: 'Credit settlement - customer',
+            referenceType: 'VOUCHER',
+            referenceId: 8,
+          },
+        ]),
+      },
+      invoice: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([
+            {
+              id: 2,
+              totalAmount: 100,
+              settledAmount: 100,
+              paymentMode: 'UDHAR',
+              paymentStatus: 'COMPLETED',
+            },
+          ])
+          .mockResolvedValueOnce([
+            { id: 2, items: [{ netWeight: 1, ratePerKg: 100 }] },
+          ]),
+      },
+      voucher: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 8, type: 'RECOVERY', paymentMode: 'CASH' },
+        ]),
+      },
+      chequeLog: { findMany: jest.fn().mockResolvedValue([]) },
+      onlinePaymentLog: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+
+    const service = new ReportsService(prisma as any);
+    const result = await service.getCustomerStatement(4);
+
+    expect(result.ledger.map((row) => row.type)).toEqual([
+      'UDHAAR',
+      'CLEARED UDHAAR',
+    ]);
+    expect(result.closingBalance).toBe(0);
+  });
+
   it('returns the vendor ledger as the statement source of truth', async () => {
     const prisma = {
       vendor: {
@@ -263,7 +391,7 @@ describe('ReportsService dashboard summary', () => {
 
     expect(result.ledger).toEqual([
       expect.objectContaining({
-        type: 'PAID',
+        type: 'CASH',
         amount: 32000,
         runningBalance: 0,
         weightKg: 100,
@@ -310,7 +438,7 @@ describe('ReportsService dashboard summary', () => {
 
     expect(result.ledger[0]).toEqual(
       expect.objectContaining({
-        type: 'PAID',
+        type: 'CASH',
         amount: 15000,
         runningBalance: 0,
       }),

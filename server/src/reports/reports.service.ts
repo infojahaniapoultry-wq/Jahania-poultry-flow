@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { dayRange, toNumber } from '../shared/ledger-posting';
+import { formatDocumentNo } from '../shared/document-number';
 import { getCurrentStockSummary } from '../shared/stock-summary';
 import {
   detailsForLedgerRow,
@@ -36,10 +37,16 @@ type DashboardSummary = {
 };
 
 type DailyPnLSource = {
-  purchases: Array<{ date: Date; weightKg: unknown; purchaseAmount: unknown }>;
+  purchases: Array<{
+    date: Date;
+    weightKg: unknown;
+    purchaseAmount: unknown;
+    driverCharge?: unknown;
+  }>;
   invoices: Array<{
     date: Date;
     totalAmount: unknown;
+    driverCharge?: unknown;
     items: Array<{ netWeight: unknown }>;
   }>;
   expenses: Array<{ date: Date; amount: unknown }>;
@@ -57,6 +64,46 @@ const emptyDailyPnL: DailyPnL = {
   remainShort: 0,
   purchaseCount: 0,
   invoiceCount: 0,
+};
+
+function statementPaymentLabel(
+  paymentMode?: string | null,
+  paymentStatus?: string | null,
+) {
+  const mode = (paymentMode ?? '').toUpperCase();
+  const status = (paymentStatus ?? '').toUpperCase();
+  // Keep the original invoice row as UDHAAR. A later settlement is rendered
+  // as its own CLEARED UDHAAR row so the customer can see both events.
+  if (mode === 'UDHAR') return 'UDHAAR';
+  if (mode === 'CHEQUE') return status === 'PENDING' ? 'CHEQUE PENDING' : status === 'BOUNCED' ? 'CHEQUE BOUNCED' : 'CHEQUE';
+  if (mode === 'ONLINE') return status === 'PENDING' ? 'ONLINE PENDING' : status === 'FAILED' ? 'ONLINE FAILED' : 'ONLINE';
+  if (mode === 'CASH') return status === 'OUTSTANDING' ? 'CASH PARTIAL' : 'CASH';
+  return mode || 'ADJUSTMENT';
+}
+
+function clearedUdhaarLabel(paymentMode?: string | null, status?: string | null) {
+  const mode = (paymentMode ?? '').toUpperCase();
+  const normalizedStatus = (status ?? '').toUpperCase();
+  if (mode === 'CASH' || normalizedStatus === 'COMPLETED') return 'CLEARED UDHAAR';
+  if (mode === 'CHEQUE') return normalizedStatus === 'CLEARED' ? 'CLEARED UDHAAR' : normalizedStatus === 'BOUNCED' ? 'UDHAAR REOPENED' : 'UDHAAR CHEQUE PENDING';
+  if (mode === 'ONLINE') return normalizedStatus === 'COMPLETED' ? 'CLEARED UDHAAR' : normalizedStatus === 'FAILED' ? 'UDHAAR REOPENED' : 'UDHAAR ONLINE PENDING';
+  return 'UDHAAR SETTLEMENT';
+}
+
+type StatementBusinessRow = {
+  id: number;
+  date: Date;
+  type: string;
+  amount: unknown;
+  runningBalance: number;
+  narration?: string | null;
+  paymentMode?: string | null;
+  paymentStatus?: string | null;
+  referenceType?: string | null;
+  referenceId?: number | null;
+  weightKg: number | null;
+  ratePerKg: number | null;
+  rateCount: number;
 };
 
 function toPktDateKey(date: Date) {
@@ -89,8 +136,18 @@ function buildDailyPnL(date: string, source: DailyPnLSource): DailyPnL {
     (sum, expense) => sum + toNumber(expense.amount),
     0,
   );
+  const driverCharges =
+    source.purchases.reduce(
+      (sum, purchase) => sum + toNumber(purchase.driverCharge),
+      0,
+    ) +
+    source.invoices.reduce(
+      (sum, invoice) => sum + toNumber(invoice.driverCharge),
+      0,
+    );
   const grossProfit = salesAmt - purchaseAmt;
-  const dailyProfit = grossProfit - totalExpenses;
+  const allExpenses = totalExpenses + driverCharges;
+  const dailyProfit = grossProfit - allExpenses;
   const remainShort = purchaseWt - soldWt;
 
   return {
@@ -100,7 +157,7 @@ function buildDailyPnL(date: string, source: DailyPnLSource): DailyPnL {
     soldWt,
     salesAmt,
     grossProfit,
-    totalExpenses,
+    totalExpenses: allExpenses,
     dailyProfit,
     remainShort,
     purchaseCount: source.purchases.length,
@@ -175,6 +232,7 @@ export class ReportsService {
           date: true,
           weightKg: true,
           purchaseAmount: true,
+          driverCharge: true,
         },
       }),
       this.prisma.invoice.findMany({
@@ -221,6 +279,7 @@ export class ReportsService {
       if (!bucket) continue;
       bucket.purchaseWt += toNumber(purchase.weightKg);
       bucket.purchaseAmt += toNumber(purchase.purchaseAmount);
+      bucket.totalExpenses += toNumber(purchase.driverCharge);
       bucket.purchaseCount += 1;
     }
 
@@ -232,6 +291,7 @@ export class ReportsService {
         0,
       );
       bucket.salesAmt += toNumber(invoice.totalAmount);
+      bucket.totalExpenses += toNumber(invoice.driverCharge);
       bucket.invoiceCount += 1;
     }
 
@@ -391,17 +451,139 @@ export class ReportsService {
       },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     });
+    const invoiceIds = Array.from(
+      new Set(
+        ledgerRows
+          .filter((row) => row.referenceType === 'INVOICE')
+          .map((row) => row.referenceId)
+          .filter((id): id is number => typeof id === 'number'),
+      ),
+    );
+    const voucherIds = Array.from(
+      new Set(
+        ledgerRows
+          .filter((row) => row.referenceType === 'VOUCHER')
+          .map((row) => row.referenceId)
+          .filter((id): id is number => typeof id === 'number'),
+      ),
+    );
+    const [invoices, vouchers] = await Promise.all([
+      invoiceIds.length
+        ? this.prisma.invoice.findMany({
+            where: { id: { in: invoiceIds } },
+            select: {
+              id: true,
+              totalAmount: true,
+              settledAmount: true,
+              paymentMode: true,
+              paymentStatus: true,
+            },
+          })
+        : ([] as any[]),
+      voucherIds.length
+        ? this.prisma.voucher.findMany({
+            where: { id: { in: voucherIds } },
+            select: { id: true, type: true, paymentMode: true },
+          })
+        : ([] as any[]),
+    ]);
+    const [chequeLogs, onlineLogs] = await Promise.all([
+      voucherIds.length
+        ? this.prisma.chequeLog.findMany({
+            where: { sourceType: 'VOUCHER', sourceId: { in: voucherIds } },
+            select: { sourceId: true, status: true },
+          })
+        : ([] as any[]),
+      voucherIds.length
+        ? this.prisma.onlinePaymentLog.findMany({
+            where: { sourceType: 'VOUCHER', sourceId: { in: voucherIds } },
+            select: { sourceId: true, status: true },
+          })
+        : ([] as any[]),
+    ]);
+    const invoiceById = new Map<number, any>(
+      (invoices as any[]).map((invoice: any) => [invoice.id, invoice] as [number, any]),
+    );
+    const voucherById = new Map<number, any>(
+      (vouchers as any[]).map((voucher: any) => [voucher.id, voucher] as [number, any]),
+    );
+    const chequeByVoucherId = new Map<number | null, any>(
+      (chequeLogs as any[]).map((log: any) => [log.sourceId, log.status] as [number | null, any]),
+    );
+    const onlineByVoucherId = new Map<number | null, any>(
+      (onlineLogs as any[]).map((log: any) => [log.sourceId, log.status] as [number | null, any]),
+    );
+    const initialInvoicePayments = new Map<number, number>();
+    for (const row of ledgerRows) {
+      if (row.referenceType === 'INVOICE_PAYMENT' && typeof row.referenceId === 'number') {
+        initialInvoicePayments.set(
+          row.referenceId,
+          (initialInvoicePayments.get(row.referenceId) ?? 0) + toNumber(row.amount),
+        );
+      }
+    }
     const ledgerDetails = await loadLedgerDetails(this.prisma, ledgerRows);
 
     const openingBalance = toNumber(customer?.openingBalance);
     let runningBalance = openingBalance;
-    const ledger = ledgerRows.map((row) => {
+    const ledger: StatementBusinessRow[] = ledgerRows.flatMap(
+      (row): StatementBusinessRow[] => {
+      if (row.referenceType === 'INVOICE_PAYMENT') return [];
+
+      const invoice = row.referenceType === 'INVOICE' && typeof row.referenceId === 'number'
+        ? invoiceById.get(row.referenceId)
+        : undefined;
+      if (invoice) {
+        const initialPaid = initialInvoicePayments.get(invoice.id) ?? (
+          invoice.paymentMode === 'UDHAR' ? 0 : toNumber(invoice.settledAmount)
+        );
+        runningBalance += Math.max(toNumber(invoice.totalAmount) - initialPaid, 0);
+        return [{
+          id: row.id,
+          date: row.date,
+          type: statementPaymentLabel(invoice.paymentMode, invoice.paymentStatus),
+          amount: invoice.totalAmount,
+          runningBalance,
+          narration: row.narration,
+          paymentMode: invoice.paymentMode,
+          paymentStatus: invoice.paymentStatus,
+          referenceType: row.referenceType,
+          referenceId: row.referenceId,
+          ...detailsForLedgerRow(ledgerDetails, row),
+        }];
+      }
+
+      if (row.referenceType === 'VOUCHER' && typeof row.referenceId === 'number' && (row.narration ?? '').startsWith('Credit settlement')) {
+        const voucher = voucherById.get(row.referenceId);
+        const paymentStatus = voucher?.paymentMode === 'CHEQUE'
+          ? chequeByVoucherId.get(row.referenceId)
+          : voucher?.paymentMode === 'ONLINE'
+            ? onlineByVoucherId.get(row.referenceId)
+            : 'COMPLETED';
+        runningBalance -= toNumber(row.amount);
+        return [{
+          id: row.id,
+          date: row.date,
+          type: clearedUdhaarLabel(voucher?.paymentMode, paymentStatus),
+          amount: row.amount,
+          runningBalance,
+          narration: 'Udhaar settlement',
+          paymentMode: voucher?.paymentMode,
+          paymentStatus,
+          referenceType: row.referenceType,
+          referenceId: row.referenceId,
+          weightKg: null,
+          ratePerKg: null,
+          rateCount: 0,
+        }];
+      }
+
       const amount = toNumber(row.amount);
       runningBalance =
         row.type === 'DEBIT'
           ? runningBalance + amount
           : runningBalance - amount;
-      return {
+      return [{
         id: row.id,
         date: row.date,
         type: row.type,
@@ -411,8 +593,9 @@ export class ReportsService {
         referenceType: row.referenceType,
         referenceId: row.referenceId,
         ...detailsForLedgerRow(ledgerDetails, row),
-      };
-    });
+      }];
+      },
+    );
 
     return {
       customer,
@@ -461,31 +644,67 @@ export class ReportsService {
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     });
 
-    const postedPurchaseIds = new Set(
-      ledgerRows
-        .filter(
-          (row) =>
-            row.referenceType === 'PURCHASE' &&
-            typeof row.referenceId === 'number',
-        )
-        .map((row) => row.referenceId),
+    const voucherIds = Array.from(
+      new Set(
+        ledgerRows
+          .filter((row) => row.referenceType === 'VOUCHER')
+          .map((row) => row.referenceId)
+          .filter((id): id is number => typeof id === 'number'),
+      ),
     );
-    const displayOnlyPurchases = purchaseRows.filter(
-      (purchase) => !postedPurchaseIds.has(purchase.id),
+    const [vouchers, chequeLogs, onlineLogs] = await Promise.all([
+      voucherIds.length
+        ? this.prisma.voucher.findMany({
+            where: { id: { in: voucherIds } },
+            select: { id: true, paymentMode: true },
+          })
+        : ([] as any[]),
+      voucherIds.length
+        ? this.prisma.chequeLog.findMany({
+            where: { sourceType: 'VOUCHER', sourceId: { in: voucherIds } },
+            select: { sourceId: true, status: true },
+          })
+        : ([] as any[]),
+      voucherIds.length
+        ? this.prisma.onlinePaymentLog.findMany({
+            where: { sourceType: 'VOUCHER', sourceId: { in: voucherIds } },
+            select: { sourceId: true, status: true },
+          })
+        : ([] as any[]),
+    ]);
+    const voucherById = new Map<number, any>(
+      (vouchers as any[]).map((voucher: any) => [voucher.id, voucher] as [number, any]),
     );
+    const chequeByVoucherId = new Map<number | null, any>(
+      (chequeLogs as any[]).map((log: any) => [log.sourceId, log.status] as [number | null, any]),
+    );
+    const onlineByVoucherId = new Map<number | null, any>(
+      (onlineLogs as any[]).map((log: any) => [log.sourceId, log.status] as [number | null, any]),
+    );
+    const initialPurchaseOutstanding = new Map<number, number>();
+    for (const row of ledgerRows) {
+      if (row.referenceType === 'PURCHASE' && typeof row.referenceId === 'number') {
+        initialPurchaseOutstanding.set(
+          row.referenceId,
+          (initialPurchaseOutstanding.get(row.referenceId) ?? 0) + toNumber(row.amount),
+        );
+      }
+    }
     const ledgerDetails = await loadLedgerDetails(this.prisma, ledgerRows);
 
     const openingBalance = toNumber(vendor?.openingBalance);
     let runningBalance = openingBalance;
     const statementEvents = [
-      ...ledgerRows.map((row) => ({
+      ...ledgerRows
+        .filter((row) => row.referenceType !== 'PURCHASE')
+        .map((row) => ({
         kind: 'ledger' as const,
         date: row.date,
         createdAt: row.createdAt,
         id: row.id,
         row,
       })),
-      ...displayOnlyPurchases.map((purchase) => ({
+      ...purchaseRows.map((purchase) => ({
         kind: 'purchase' as const,
         date: purchase.date,
         createdAt: purchase.createdAt,
@@ -501,27 +720,23 @@ export class ReportsService {
       return leftCreatedAt - rightCreatedAt || left.id - right.id;
     });
 
-    const ledger = statementEvents.map((event) => {
+    const ledger: StatementBusinessRow[] = statementEvents.map(
+      (event): StatementBusinessRow => {
       if (event.kind === 'purchase') {
         const purchaseAmount = toNumber(event.purchase.purchaseAmount);
-        const storedSettledAmount = toNumber(event.purchase.settledAmount);
-        // Seeded/legacy cash purchases may have COMPLETED status but a zero
-        // settledAmount. Treat those as paid rather than inventing a payable.
-        const settledAmount =
-          storedSettledAmount > 0 || event.purchase.paymentStatus !== 'COMPLETED'
-            ? Math.min(storedSettledAmount, purchaseAmount)
-            : purchaseAmount;
-        const outstandingAmount = Math.max(purchaseAmount - settledAmount, 0);
+        const initialOutstanding = initialPurchaseOutstanding.has(event.purchase.id)
+          ? Math.min(initialPurchaseOutstanding.get(event.purchase.id) ?? 0, purchaseAmount)
+          : event.purchase.paymentMode === 'UDHAR'
+            ? purchaseAmount
+            : 0;
 
-        if (outstandingAmount > 0) {
-          runningBalance += outstandingAmount;
-        }
+        runningBalance += initialOutstanding;
 
         return {
           id: event.id,
           date: event.purchase.date,
-          type: outstandingAmount > 0 ? 'CREDIT' : 'PAID',
-          amount: outstandingAmount > 0 ? outstandingAmount : settledAmount,
+          type: statementPaymentLabel(event.purchase.paymentMode, event.purchase.paymentStatus),
+          amount: purchaseAmount,
           runningBalance,
           narration:
             event.purchase.notes ?? `Purchase from ${vendor?.name ?? 'Vendor'}`,
@@ -530,6 +745,31 @@ export class ReportsService {
           weightKg: toNumber(event.purchase.weightKg),
           ratePerKg: toNumber(event.purchase.ratePerKg),
           rateCount: 1,
+        };
+      }
+
+      if (event.row.referenceType === 'VOUCHER' && typeof event.row.referenceId === 'number' && (event.row.narration ?? '').startsWith('Credit settlement')) {
+        const voucher = voucherById.get(event.row.referenceId);
+        const paymentStatus = voucher?.paymentMode === 'CHEQUE'
+          ? chequeByVoucherId.get(event.row.referenceId)
+          : voucher?.paymentMode === 'ONLINE'
+            ? onlineByVoucherId.get(event.row.referenceId)
+            : 'COMPLETED';
+        runningBalance -= toNumber(event.row.amount);
+        return {
+          id: event.row.id,
+          date: event.row.date,
+          type: clearedUdhaarLabel(voucher?.paymentMode, paymentStatus),
+          amount: event.row.amount,
+          runningBalance,
+          narration: 'Udhaar settlement',
+          paymentMode: voucher?.paymentMode,
+          paymentStatus,
+          referenceType: event.row.referenceType,
+          referenceId: event.row.referenceId,
+          weightKg: null,
+          ratePerKg: null,
+          rateCount: 0,
         };
       }
 
@@ -549,7 +789,8 @@ export class ReportsService {
         referenceId: event.row.referenceId,
         ...detailsForLedgerRow(ledgerDetails, event.row),
       };
-    });
+      },
+    );
 
     return {
       vendor,
@@ -589,10 +830,43 @@ export class ReportsService {
   }
 
   async getExpenseSummary(startDate?: string, endDate?: string) {
-    const entries = await this.prisma.expenseEntry.findMany({
-      where: buildOptionalDateFilter(startDate, endDate),
-      include: { expenseAccount: true },
-    });
+    const dateFilter = buildOptionalDateFilter(startDate, endDate);
+    const [entries, invoices, purchases] = await Promise.all([
+      this.prisma.expenseEntry.findMany({
+        where: dateFilter,
+        include: { expenseAccount: true },
+      }),
+      this.prisma.invoice.findMany({
+        where: {
+          ...dateFilter,
+          isVoided: false,
+          driverId: { not: null },
+          driverCharge: { gt: 0 },
+        },
+        select: {
+          date: true,
+          invoiceNo: true,
+          driverCharge: true,
+          driver: { select: { name: true } },
+        },
+        orderBy: { date: 'desc' },
+      }),
+      this.prisma.purchaseEntry.findMany({
+        where: {
+          ...dateFilter,
+          isVoided: false,
+          driverId: { not: null },
+          driverCharge: { gt: 0 },
+        },
+        select: {
+          id: true,
+          date: true,
+          driverCharge: true,
+          driver: { select: { name: true } },
+        },
+        orderBy: { date: 'desc' },
+      }),
+    ]);
 
     const summary: Record<
       string,
@@ -612,12 +886,41 @@ export class ReportsService {
       summary[key].count += 1;
     }
 
+    const driverRecords = [
+      ...invoices.map((invoice) => ({
+        date: invoice.date,
+        driver: invoice.driver?.name ?? 'Driver',
+        source: 'INVOICE',
+        reference: invoice.invoiceNo,
+        amount: toNumber(invoice.driverCharge),
+        narration: `Driver transport charge for ${invoice.invoiceNo}`,
+      })),
+      ...purchases.map((purchase) => ({
+        date: purchase.date,
+        driver: purchase.driver?.name ?? 'Driver',
+        source: 'PURCHASE',
+        reference: formatDocumentNo('PUR', purchase.id),
+        amount: toNumber(purchase.driverCharge),
+        narration: `Driver transport charge for ${formatDocumentNo('PUR', purchase.id)}`,
+      })),
+    ];
+
+    if (driverRecords.length > 0) {
+      summary['Driver Transport Charges'] = {
+        expenseAccount: 'Driver Transport Charges',
+        category: 'Transport',
+        total: driverRecords.reduce((sum, row) => sum + row.amount, 0),
+        count: driverRecords.length,
+      };
+    }
+
     const rows = Object.values(summary).sort((a, b) => b.total - a.total);
 
     return {
       period: { startDate, endDate },
       summary: rows,
       grandTotal: rows.reduce((s, v) => s + v.total, 0),
+      driverRecords,
     };
   }
 }

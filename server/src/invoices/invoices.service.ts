@@ -121,8 +121,11 @@ async function rebuildCashBook(tx: any) {
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
   private readonly transactionOptions = {
-    maxWait: 5_000,
-    timeout: 15_000,
+    // Invoice writes update the invoice, stock, customer/driver ledgers,
+    // payment records, and cash book in one atomic operation. Neon can take
+    // longer than Prisma's default timeout when these ledger tables are cold.
+    maxWait: 10_000,
+    timeout: 60_000,
   };
 
   constructor(
@@ -1003,6 +1006,6 @@ export class InvoicesService {
           voidedAt,
         },
       });
-    });
+    }, this.transactionOptions);
   }
 }
