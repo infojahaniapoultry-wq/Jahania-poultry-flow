@@ -10,6 +10,7 @@ import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/bu
 import { getCachedPageData, setCachedPageData } from '@/lib/page-cache';
 import { Plus, RefreshCw, Search, ArrowUpRight, ArrowDownLeft, Wallet, Landmark, Loader2, MoreVertical, FileText, Truck, ShoppingBag, Banknote } from 'lucide-react';
 import DatePicker from '@/components/DatePicker';
+import { ONLINE_PROVIDER_OPTIONS } from '../finance/shared';
 
 interface Customer { id: number; shopName: string; }
 interface Vendor { id: number; name: string; }
@@ -89,6 +90,7 @@ export default function TransactionsPage() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountForm, setAccountForm] = useState({ name: '', category: '' });
+  const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({ type: '', mode: '', status: '', startDate: today, endDate: today });
   const [form, setForm] = useState({
     type: 'EXPENSE',
@@ -190,11 +192,23 @@ export default function TransactionsPage() {
 
   const visibleRows = useMemo(() => {
     return rows.filter((row) => {
+      const query = searchQuery.trim().toLowerCase();
+      if (query) {
+        const searchableText = [
+          row.partyName,
+          row.driverName,
+          row.reference,
+          row.narration,
+          row.sourceType,
+          row.paymentMode,
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!searchableText.includes(query)) return false;
+      }
       if (filters.mode && (row.paymentMode ?? '').toUpperCase() !== filters.mode) return false;
       if (filters.status && (row.paymentStatus ?? '').toUpperCase() !== filters.status) return false;
       return true;
     });
-  }, [filters.mode, filters.status, rows]);
+  }, [filters.mode, filters.status, rows, searchQuery]);
 
   const summary = useMemo(() => {
     return visibleRows.reduce((acc, r) => {
@@ -328,7 +342,12 @@ export default function TransactionsPage() {
       <div className="bg-white border border-slate-200 rounded-3xl p-2 mb-8 shadow-sm flex flex-wrap gap-2">
         <div className="flex-1 min-w-[200px] relative group">
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slate-900 transition-colors" />
-          <input className="w-full pl-11 pr-4 py-2 bg-slate-50 rounded-2xl text-xs font-bold focus:bg-white outline-none transition-all" placeholder="Search by party or reference..." />
+          <input
+            className="w-full pl-11 pr-4 py-2 bg-slate-50 rounded-2xl text-xs font-bold focus:bg-white outline-none transition-all"
+            placeholder="Search by party or reference..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
         </div>
         <select className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-black uppercase tracking-widest text-slate-600 outline-none focus:bg-white" value={filters.type} onChange={e => setFilters(p => ({ ...p, type: e.target.value }))}>
           <option value="">Nature: All</option>
@@ -385,7 +404,7 @@ export default function TransactionsPage() {
                     <div className="space-y-1">
                       <label className="text-[9px] font-black text-slate-400 uppercase">Gateway</label>
                       <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none" value={form.paymentProvider} onChange={e => setForm(p => ({ ...p, paymentProvider: e.target.value }))}>
-                        <option value="JAZZCASH">JazzCash</option><option value="EASYPAISA">Easypaisa</option><option value="BANK_TRANSFER">Bank</option>
+                        {ONLINE_PROVIDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </div>
                     <div className="space-y-1">
