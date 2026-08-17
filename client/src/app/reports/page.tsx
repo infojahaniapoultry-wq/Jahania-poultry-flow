@@ -63,6 +63,15 @@ type ExpenseRow = {
   count: number;
 };
 
+type DriverExpenseRecord = {
+  date: string;
+  driver: string;
+  source: string;
+  reference: string;
+  amount: number;
+  narration: string;
+};
+
 type RecoveryRow = {
   date: string;
   customer: string | null;
@@ -96,6 +105,7 @@ type ReportState =
   | {
       kind: 'expense';
       rows: ExpenseRow[];
+      driverRecords: DriverExpenseRecord[];
       periodLabel: string;
       grandTotal: number;
     }
@@ -109,7 +119,7 @@ type ReportState =
 type CustomerOption = { id: number; shopName: string };
 type VendorOption = { id: number; name: string };
 
-const REPORT_CACHE_STORAGE_KEY = 'poultryflow:reports-cache:v1';
+const REPORT_CACHE_STORAGE_KEY = 'poultryflow:reports-cache:v4';
 
 const REPORT_TABS: Array<{
   id: ReportTab;
@@ -127,7 +137,6 @@ const REPORT_TABS: Array<{
 
 const formatCurrency = (value: unknown) => `Rs. ${Number(value ?? 0).toLocaleString('en-PK')}`;
 const formatWeight = (value: unknown) => `${Number(value ?? 0).toFixed(2)} kg`;
-const formatDateInput = (date: string) => new Date(date).toISOString().split('T')[0];
 
 function readReportCache(): Record<string, ReportState> {
   if (typeof window === 'undefined') return {};
@@ -161,9 +170,37 @@ function getReportCacheKey(
       return `customer:${filters.customerId || 'none'}`;
     case 'vendor':
       return `vendor:${filters.vendorId || 'none'}`;
+    case 'cash':
+    case 'expense':
+    case 'recovery':
+      return `${tab}:${filters.date || 'all-time'}`;
     default:
       return tab;
   }
+}
+
+function getPKTDate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function getDateRangeQuery(date: string) {
+  if (!date) return '';
+  const start = new Date(`${date}T00:00:00.000+05:00`).toISOString();
+  const end = new Date(`${date}T23:59:59.999+05:00`).toISOString();
+  return `startDate=${encodeURIComponent(start)}&endDate=${encodeURIComponent(end)}`;
+}
+
+function formatPeriodLabel(date: string) {
+  return date
+    ? new Date(`${date}T12:00:00+05:00`).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })
+    : 'All Time';
 }
 
 const statementColumns: Column<LedgerRow>[] = [
@@ -178,7 +215,11 @@ const statementColumns: Column<LedgerRow>[] = [
     label: 'Type',
     render: (row) => (
       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black tracking-widest ${
-        row.type === 'DEBIT' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'
+        row.type.includes('BOUNCED') || row.type.includes('FAILED') || row.type.includes('REOPENED')
+          ? 'bg-red-50 text-red-600'
+          : row.type === 'UDHAAR' || row.type.includes('PENDING') || row.type === 'DEBIT'
+            ? 'bg-amber-50 text-amber-700'
+            : 'bg-emerald-50 text-emerald-600'
       }`}>{row.type}</span>
     ),
   },
@@ -255,6 +296,19 @@ const expenseColumns: Column<ExpenseRow>[] = [
     align: 'right',
     render: (row) => <span className="font-black text-red-600">{formatCurrency(row.total)}</span>,
   },
+];
+
+const driverExpenseColumns: Column<DriverExpenseRecord>[] = [
+  {
+    key: 'date',
+    label: 'Date',
+    render: (row) => <span className="font-medium text-slate-600">{new Date(row.date).toLocaleDateString('en-PK')}</span>,
+  },
+  { key: 'driver', label: 'Driver', render: (row) => <span className="font-bold text-slate-900">{row.driver}</span> },
+  { key: 'source', label: 'Record Type', render: (row) => <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{row.source}</span> },
+  { key: 'reference', label: 'Invoice / Purchase', render: (row) => <span className="text-xs font-bold text-emerald-700">{row.reference}</span> },
+  { key: 'narration', label: 'Details', render: (row) => <span className="text-xs text-slate-500">{row.narration}</span> },
+  { key: 'amount', label: 'Amount', align: 'right', render: (row) => <span className="font-black text-red-600">{formatCurrency(row.amount)}</span> },
 ];
 
 const recoveryColumns: Column<RecoveryRow>[] = [
@@ -813,7 +867,7 @@ export default function ReportsPage() {
   const reportCacheRef = useRef<Record<string, ReportState>>(readReportCache());
   const requestSeqRef = useRef(0);
   const [filters, setFilters] = useState({
-    date: formatDateInput(new Date().toISOString()),
+    date: getPKTDate(),
     customerId: '',
     vendorId: '',
   });
@@ -846,9 +900,9 @@ export default function ReportsPage() {
             case 'pnl': return api.get(`/reports/daily-pnl?date=${filters.date}`);
             case 'customer': return api.get(`/reports/customer-statement?customerId=${filters.customerId}`);
             case 'vendor': return api.get(`/reports/vendor-statement?vendorId=${filters.vendorId}`);
-            case 'cash': return api.get('/reports/cash-book');
-            case 'expense': return api.get('/reports/expense-summary');
-            case 'recovery': return api.get('/reports/recovery');
+            case 'cash': return api.get(`/reports/cash-book?${getDateRangeQuery(filters.date)}`);
+            case 'expense': return api.get(`/reports/expense-summary?${getDateRangeQuery(filters.date)}`);
+            case 'recovery': return api.get(`/reports/recovery?${getDateRangeQuery(filters.date)}`);
           }
         })();
 
@@ -871,18 +925,28 @@ export default function ReportsPage() {
           }
           case 'cash': {
             const rows = (payload || []).map((row: any) => ({ date: row.date, type: row.type, narration: row.narration, amount: Number(row.amount), runningBalance: Number(row.runningBalance), voucherRef: row.voucherRef }));
-            writeReport({ kind: 'cash', rows, periodLabel: 'All Time', totalReceipts: rows.filter((r: any) => r.type === 'RECEIPT').reduce((s: any, r: any) => s + r.amount, 0), totalPayments: rows.filter((r: any) => r.type === 'PAYMENT').reduce((s: any, r: any) => s + r.amount, 0), endingBalance: rows[rows.length - 1]?.runningBalance ?? 0 });
+            writeReport({ kind: 'cash', rows, periodLabel: formatPeriodLabel(filters.date), totalReceipts: rows.filter((r: any) => r.type === 'RECEIPT').reduce((s: any, r: any) => s + r.amount, 0), totalPayments: rows.filter((r: any) => r.type === 'PAYMENT').reduce((s: any, r: any) => s + r.amount, 0), endingBalance: rows[rows.length - 1]?.runningBalance ?? 0 });
             break;
           }
           case 'expense': {
-            const sum = payload.summary || {};
-            const rows = Object.entries(sum).map(([acc, row]: [string, any]) => ({ expenseAccount: acc, category: row.category ?? 'General', total: Number(row.total), count: Number(row.count) }));
-            writeReport({ kind: 'expense', rows: rows.sort((a, b) => b.total - a.total), periodLabel: 'All Time', grandTotal: Number(payload.grandTotal ?? 0) });
+            const sum = payload.summary || [];
+            const rows = Array.isArray(sum)
+              ? sum.map((row: any) => ({ expenseAccount: row.expenseAccount, category: row.category ?? 'General', total: Number(row.total), count: Number(row.count) }))
+              : Object.entries(sum).map(([acc, row]: [string, any]) => ({ expenseAccount: acc, category: row.category ?? 'General', total: Number(row.total), count: Number(row.count) }));
+            const driverRecords = (payload.driverRecords ?? []).map((row: any) => ({
+              date: row.date,
+              driver: row.driver ?? 'Driver',
+              source: row.source ?? 'INVOICE',
+              reference: row.reference ?? '—',
+              amount: Number(row.amount ?? 0),
+              narration: row.narration ?? 'Driver transport charge',
+            }));
+            writeReport({ kind: 'expense', rows: rows.sort((a, b) => b.total - a.total), driverRecords, periodLabel: formatPeriodLabel(filters.date), grandTotal: Number(payload.grandTotal ?? 0) });
             break;
           }
           case 'recovery': {
             const rows = (payload || []).map((row: any) => ({ date: row.date, customer: row.customer, amount: Number(row.amount), paymentMode: row.paymentMode, narration: row.narration, reference: row.reference }));
-            writeReport({ kind: 'recovery', rows, periodLabel: 'All Time', total: rows.reduce((s: any, r: any) => s + r.amount, 0) });
+            writeReport({ kind: 'recovery', rows, periodLabel: formatPeriodLabel(filters.date), total: rows.reduce((s: any, r: any) => s + r.amount, 0) });
             break;
           }
         }
@@ -996,6 +1060,13 @@ export default function ReportsPage() {
         {/* Filters Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 items-end">
           {activeTab === 'pnl' && (
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">Report Date</label>
+              <DatePicker value={filters.date} onChange={d => setFilters(p => ({ ...p, date: d }))} className="!py-2.5 !rounded-xl !text-sm font-bold" />
+            </div>
+          )}
+
+          {(['cash', 'expense', 'recovery'] as ReportTab[]).includes(activeTab) && (
             <div className="space-y-2">
               <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">Report Date</label>
               <DatePicker value={filters.date} onChange={d => setFilters(p => ({ ...p, date: d }))} className="!py-2.5 !rounded-xl !text-sm font-bold" />
@@ -1172,6 +1243,18 @@ export default function ReportsPage() {
               {report.kind === 'expense' && <DataTable columns={expenseColumns} data={report.rows} emptyMessage="No overheads recorded." />}
               {report.kind === 'recovery' && <DataTable columns={recoveryColumns} data={report.rows} emptyMessage="No collections tracked." />}
             </div>
+
+            {report.kind === 'expense' && (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900">Driver Expense Records</h3>
+                  <p className="text-xs font-medium text-slate-400">Transport charges generated from sales invoices and purchase records.</p>
+                </div>
+                <div className="bg-white rounded-3xl overflow-hidden border border-slate-200">
+                  <DataTable columns={driverExpenseColumns} data={report.driverRecords ?? []} emptyMessage="No driver charges recorded." />
+                </div>
+              </div>
+            )}
 
             <div className="border-t border-slate-200 pt-5 text-center text-[10px] font-bold tracking-wide text-slate-400">
               Powered by Voicepls • AI &amp; Software Development Company • <a href={VOICEPLS_URL} className="text-emerald-600 underline underline-offset-2">voicepls.com</a>
