@@ -1,5 +1,33 @@
 export type PaymentMode = 'CASH' | 'CHEQUE' | 'ONLINE';
-export type OnlineProvider = 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'OTHER';
+export type OnlineProvider = 'JAZZCASH' | 'EASYPAISA' | 'NAYAPAY' | 'BANK_TRANSFER' | 'OTHER';
+
+export const ONLINE_PROVIDER_OPTIONS: Array<{ value: OnlineProvider; label: string }> = [
+  { value: 'JAZZCASH', label: 'JazzCash' },
+  { value: 'EASYPAISA', label: 'Easypaisa' },
+  { value: 'NAYAPAY', label: 'NayaPay' },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+export const BANK_OPTIONS = [
+  'MCB Bank',
+  'HBL',
+  'UBL',
+  'Meezan Bank',
+  'Allied Bank',
+  'Bank Alfalah',
+  'Askari Bank',
+  'Faysal Bank',
+  'Bank Al Habib',
+  'Habib Metropolitan Bank',
+  'National Bank of Pakistan',
+  'JS Bank',
+  'Soneri Bank',
+  'Silkbank',
+  'Standard Chartered',
+  'Dubai Islamic Bank',
+  'Other',
+] as const;
 
 export interface CustomerRow {
   id: number;
