@@ -5,7 +5,6 @@ A full-stack business management system built for **Jahania Poultry Service** to
 ---
 
 ## 🛠️ Tech Stack
-
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | NestJS (Node.js) + TypeScript |
