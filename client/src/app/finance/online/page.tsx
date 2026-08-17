@@ -1,35 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Smartphone, Landmark, CreditCard, Search, Clock, MoreHorizontal } from 'lucide-react';
+import { RefreshCw, Smartphone, Landmark, CreditCard, Search, Clock } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import DataTable from '@/components/DataTable';
 import DatePicker from '@/components/DatePicker';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
-import { useAuth } from '@/lib/auth';
-import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
+import { BUSINESS_DATA_UPDATED_EVENT } from '@/lib/business-events';
 import { getCachedPageData, setCachedPageData } from '@/lib/page-cache';
 import {
   fmt,
   OnlineProvider,
   OnlineRow,
+  ONLINE_PROVIDER_OPTIONS,
 } from '../shared';
 
 type OnlineFilterProvider = '' | OnlineProvider;
-type OnlineFilterStatus = '' | 'PENDING' | 'COMPLETED' | 'FAILED' | 'OUTSTANDING';
 type OnlineSourceFilter = '' | 'PURCHASE' | 'INVOICE' | 'MANUAL';
-
-const statusMeta: Record<Exclude<OnlineFilterStatus, ''>, { label: string; color: string; note: string }> = {
-  PENDING: { label: 'Awaiting', color: 'text-amber-600 bg-amber-50', note: 'Pending verification' },
-  COMPLETED: { label: 'Passed', color: 'text-emerald-600 bg-emerald-50', note: 'Confirmed to ledger' },
-  FAILED: { label: 'Failed', color: 'text-red-600 bg-red-50', note: 'Reverted to credit' },
-  OUTSTANDING: { label: 'Unlinked', color: 'text-slate-500 bg-slate-50', note: 'Awaiting source' },
-};
 
 const providerMeta: Record<OnlineProvider, { label: string; color: string; icon: any }> = {
   JAZZCASH: { label: 'JazzCash', color: 'bg-red-50 text-red-700', icon: Smartphone },
   EASYPAISA: { label: 'Easypaisa', color: 'bg-emerald-50 text-emerald-700', icon: Smartphone },
+  NAYAPAY: { label: 'NayaPay', color: 'bg-violet-50 text-violet-700', icon: Smartphone },
   BANK_TRANSFER: { label: 'Bank', color: 'bg-blue-50 text-blue-700', icon: Landmark },
   OTHER: { label: 'Digital', color: 'bg-slate-50 text-slate-700', icon: CreditCard },
 };
@@ -49,25 +42,20 @@ function getOnlineOrigin(row: OnlineRow) {
 }
 
 export default function FinanceOnlinePage() {
-  const { user } = useAuth();
-  const canEditStatuses = user?.role === 'ADMIN';
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<number | null>(null);
   const [rows, setRows] = useState<OnlineRow[]>([]);
-  const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<{ provider: OnlineFilterProvider; status: OnlineFilterStatus; sourceType: OnlineSourceFilter; startDate: string; endDate: string; }>({ provider: '', status: '', sourceType: '', startDate: '', endDate: '' });
+  const [filters, setFilters] = useState<{ provider: OnlineFilterProvider; sourceType: OnlineSourceFilter; startDate: string; endDate: string; }>({ provider: '', sourceType: '', startDate: '', endDate: '' });
   const cacheKey = useMemo(
-    () => `finance-online-page:${filters.provider || 'ALL'}:${filters.status || 'ALL'}:${filters.sourceType || 'ALL'}:${filters.startDate || 'ALL'}:${filters.endDate || 'ALL'}`,
-    [filters.endDate, filters.provider, filters.sourceType, filters.startDate, filters.status],
+    () => `finance-online-page:${filters.provider || 'ALL'}:${filters.sourceType || 'ALL'}:${filters.startDate || 'ALL'}:${filters.endDate || 'ALL'}`,
+    [filters.endDate, filters.provider, filters.sourceType, filters.startDate],
   );
 
   const load = useCallback(async (force = false) => {
     if (!force) {
-      const cached = getCachedPageData<{ rows: OnlineRow[]; drafts: Record<number, string> }>(cacheKey);
+      const cached = getCachedPageData<{ rows: OnlineRow[] }>(cacheKey);
       if (cached) {
         setRows(cached.rows);
-        setDrafts(cached.drafts);
         setLoading(false);
         return;
       }
@@ -77,16 +65,13 @@ export default function FinanceOnlinePage() {
     try {
       const query = new URLSearchParams();
       if (filters.provider) query.set('provider', filters.provider);
-      if (filters.status) query.set('status', filters.status);
       if (filters.sourceType) query.set('sourceType', filters.sourceType);
       if (filters.startDate) query.set('startDate', new Date(filters.startDate).toISOString());
       if (filters.endDate) query.set('endDate', new Date(filters.endDate).toISOString());
       const res = await api.get(`/payments/online?${query.toString()}`);
       const data = res.data as OnlineRow[];
       setRows(data);
-      const drafts = Object.fromEntries(data.map((row) => [row.id, 'COMPLETED']));
-      setDrafts(drafts);
-      setCachedPageData(cacheKey, { rows: data, drafts });
+      setCachedPageData(cacheKey, { rows: data });
     } catch { toast.error('Failed to load transfers'); } finally { setLoading(false); }
   }, [cacheKey, filters]);
 
@@ -112,21 +97,11 @@ export default function FinanceOnlinePage() {
 
   const summary = useMemo(() => {
     return visibleRows.reduce((acc, r) => {
-      if (r.status === 'PENDING') { acc.count++; acc.val += Number(r.amount); }
+      acc.count++;
+      acc.val += Number(r.amount);
       return acc;
     }, { count: 0, val: 0 });
   }, [visibleRows]);
-
-  const saveStatus = async (id: number) => {
-    const status = drafts[id];
-    if (!status) return;
-    setSavingId(id);
-    try {
-      await api.patch(`/payments/online/${id}/status`, { status });
-      toast.success('Transfer updated');
-      notifyBusinessDataUpdated();
-    } catch { toast.error('Update failed'); } finally { setSavingId(null); }
-  };
 
   const columns = [
     {
@@ -159,40 +134,14 @@ export default function FinanceOnlinePage() {
     { key: 'amount', label: 'Net Value', align: 'right' as const, render: (r: OnlineRow) => <span className="text-sm font-black text-slate-900">{fmt(r.amount)}</span> },
     {
       key: 'status',
-      label: 'Verification',
-      render: (r: OnlineRow) => {
-        const normalizedStatus = r.status === 'BOUNCED' ? 'FAILED' : r.status;
-        const meta = statusMeta[normalizedStatus as Exclude<OnlineFilterStatus, ''>] || statusMeta.PENDING;
-        return (
-          <div className="flex flex-col">
-            <span className={`inline-flex w-fit px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${meta.color}`}>{meta.label}</span>
-            {r.status === 'PENDING' && <span className="text-[9px] font-medium text-slate-300 mt-0.5">Clearance Needed</span>}
-          </div>
-        );
-      }
-    },
-      {
-        key: 'action',
-        label: '',
-        align: 'right' as const,
-        render: (r: OnlineRow) => (
-          <div className="flex justify-end">
-           {canEditStatuses && r.status === 'PENDING' ? (
-              <div className="flex items-center gap-2 p-1 bg-slate-50 border border-slate-100 rounded-xl">
-                 <select className="bg-transparent border-none text-[10px] font-black uppercase outline-none px-2" value={drafts[r.id]} onChange={e => setDrafts(p => ({ ...p, [r.id]: e.target.value }))}>
-                    <option value="COMPLETED">Pass</option>
-                    <option value="FAILED">Fail</option>
-                 </select>
-               <button onClick={() => saveStatus(r.id)} disabled={savingId === r.id} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase transition-all active:scale-95 hover:bg-emerald-700 shadow-sm shadow-emerald-100">
-                 {savingId === r.id ? '...' : 'OK'}
-               </button>
-            </div>
-          ) : (
-            <button className="p-2 text-slate-300 hover:text-slate-600 hover:bg-slate-50 rounded-xl"><MoreHorizontal size={16} /></button>
-          )}
+      label: 'Recorded',
+      render: () => (
+        <div className="flex flex-col">
+          <span className="inline-flex w-fit px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50">Recorded</span>
+          <span className="text-[9px] font-medium text-slate-300 mt-0.5">Payment record saved</span>
         </div>
-      )
-    }
+      ),
+    },
   ];
 
   return (
@@ -200,7 +149,7 @@ export default function FinanceOnlinePage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Digital Clearing</h1>
-          <p className="text-slate-500 font-medium tracking-tight">Audit JazzCash, Easypaisa and Bank transfers. Ensure virtual funds are realized.</p>
+          <p className="text-slate-500 font-medium tracking-tight">Review recorded JazzCash, Easypaisa, NayaPay and bank transfers after payment.</p>
         </div>
         <div className="flex items-center gap-3 self-start">
            <button onClick={() => load(true)} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-all active:scale-95">
@@ -222,7 +171,7 @@ export default function FinanceOnlinePage() {
         
         <div className="bg-white border-2 border-slate-900 rounded-[32px] p-6 shadow-sm relative overflow-hidden">
            <div className="relative z-10 flex flex-col h-full justify-center">
-             <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Awaiting Verification</div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Recorded Transfers</div>
              <div className="text-4xl font-black text-slate-900 leading-none">{summary.count} <span className="text-xs text-slate-300 tracking-widest">TRANSFERS</span></div>
            </div>
         </div>
@@ -230,10 +179,7 @@ export default function FinanceOnlinePage() {
 
       <div className="flex flex-wrap gap-2 mb-8 bg-white border border-slate-200 p-2 rounded-3xl shadow-sm">
         <select className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none" value={filters.provider} onChange={e => setFilters(p => ({ ...p, provider: e.target.value as any }))}>
-          <option value="">All Networks</option><option value="JAZZCASH">JazzCash</option><option value="EASYPAISA">Easypaisa</option><option value="BANK_TRANSFER">Bank</option>
-        </select>
-        <select className="px-4 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none" value={filters.status} onChange={e => setFilters(p => ({ ...p, status: e.target.value as any }))}>
-          <option value="">All Statuses</option><option value="PENDING">Pending</option><option value="COMPLETED">Passed</option><option value="FAILED">Failed</option>
+          <option value="">All Networks</option>{ONLINE_PROVIDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <div className="flex items-center bg-slate-50 border border-slate-100 rounded-2xl px-2">
            <DatePicker value={filters.startDate} onChange={d => setFilters(p => ({ ...p, startDate: d }))} />
