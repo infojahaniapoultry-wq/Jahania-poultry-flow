@@ -8,9 +8,10 @@ import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { toast } from 'react-hot-toast';
 import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
+import { BANK_OPTIONS, ONLINE_PROVIDER_OPTIONS } from '@/app/finance/shared';
 
 type PaymentMode = 'CASH' | 'UDHAR' | 'CHEQUE' | 'ONLINE';
-type OnlineProvider = 'JAZZCASH' | 'EASYPAISA' | 'BANK_TRANSFER' | 'OTHER';
+type OnlineProvider = 'JAZZCASH' | 'EASYPAISA' | 'NAYAPAY' | 'BANK_TRANSFER' | 'OTHER';
 
 interface Customer {
   id: number;
@@ -109,6 +110,10 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
     () => items.reduce((sum, item) => sum + Number(item.quantityKg || 0) * Number(item.ratePerKg || 0), 0),
     [items],
   );
+  const totalQuantityKg = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.quantityKg || 0), 0),
+    [items],
+  );
   const effectiveDriverCharge = Number(form.driverCharge || selectedDriver?.defaultCharge || 0);
   const effectiveSettledAmount = form.settledAmount === ''
     ? (form.paymentMode === 'UDHAR' ? 0 : computedTotal)
@@ -189,7 +194,7 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
     } finally {
       setLoading(false);
     }
-  }, [onClose, user?.role]);
+  }, [onClose, user]);
 
   const loadMarketRate = useCallback(async (date: string) => {
     setRateLoading(true);
@@ -264,6 +269,10 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
     }
     if (effectiveSettledAmount > computedTotal) {
       toast.error('Paid amount cannot exceed invoice total');
+      return;
+    }
+    if (effectiveSettledAmount < 0) {
+      toast.error('Paid amount cannot be negative');
       return;
     }
     if (form.paymentMode === 'UDHAR' && effectiveSettledAmount !== 0) {
@@ -426,15 +435,12 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
                 )}
               </div>
               {user?.role === 'ADMIN' && (
-                <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={manualRateOverride}
-                    onChange={(event) => setManualRateOverride(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  Override item rates
-                </label>
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-800">
+                  <span>{manualRateOverride ? 'Manual rates active — edit any row below.' : 'Edit any rate below to use a manual price.'}</span>
+                  {manualRateOverride && calculatedRate != null && (
+                    <button type="button" onClick={() => setManualRateOverride(false)} className="whitespace-nowrap underline underline-offset-2 hover:text-amber-950">Use saved rate</button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -463,7 +469,7 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
 
           <div className="space-y-3">
             {items.map((item, index) => (
-              <div key={item.rowId} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[1.15fr,1fr,auto] sm:items-center">
+              <div key={item.rowId} className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[1.15fr,1fr,.8fr,auto] sm:items-center">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border border-slate-200">
                     {String(index + 1).padStart(2, '0')}
@@ -477,15 +483,23 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
                     onChange={(e) => updateItem(item.rowId, 'quantityKg', e.target.value)}
                   />
                 </div>
-                <input
-                  className="rounded-xl border border-slate-100 bg-white px-3 py-2 text-xs font-bold outline-none transition-all focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+              <input
+                  className={`rounded-xl border bg-white px-3 py-2 text-xs font-bold outline-none transition-all focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 ${manualRateOverride ? 'border-amber-300 ring-2 ring-amber-100' : 'border-slate-100'}`}
                   type="number"
                   step="0.01"
+                  aria-label="Rate per kilogram"
                   placeholder="Rate / Kg (Rs.)"
                   value={item.ratePerKg}
-                  disabled={!manualRateOverride}
-                  onChange={(e) => updateItem(item.rowId, 'ratePerKg', e.target.value)}
+                  readOnly={user?.role !== 'ADMIN'}
+                  onChange={(e) => {
+                    setManualRateOverride(true);
+                    updateItem(item.rowId, 'ratePerKg', e.target.value);
+                  }}
                 />
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:block sm:text-right">
+                  <span className="text-[9px] font-black uppercase tracking-[0.18em] text-slate-400 sm:block">Line total</span>
+                  <span className="font-black text-slate-800">{fmt(Number(item.quantityKg || 0) * Number(item.ratePerKg || 0))}</span>
+                </div>
                 <button
                   type="button"
                   onClick={() => setItems((prev) => prev.filter((row) => row.rowId !== item.rowId))}
@@ -498,8 +512,11 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
             ))}
           </div>
 
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Estimated Invoice Total</div>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Estimated Invoice Total</div>
+              <div className="mt-1 text-xs font-semibold text-slate-500">{totalQuantityKg.toFixed(3)} kg × editable rate per kg</div>
+            </div>
             <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
               <span className="rounded-full bg-white px-3 py-1 border border-slate-200 text-slate-700">{fmt(computedTotal)}</span>
               <span className="rounded-full bg-emerald-50 px-3 py-1 border border-emerald-100 text-emerald-700">
@@ -531,7 +548,11 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
                     onClick={() => setForm((prev) => ({
                       ...prev,
                       paymentMode: mode,
-                      settledAmount: mode === 'UDHAR' ? '0' : prev.settledAmount,
+                      settledAmount: mode === 'UDHAR'
+                        ? '0'
+                        : prev.settledAmount === '' || prev.settledAmount === '0'
+                          ? computedTotal.toFixed(2)
+                          : prev.settledAmount,
                     }))}
                     className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-[0.24em] transition-all ${
                       form.paymentMode === mode
@@ -539,7 +560,7 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
                         : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-emerald-200'
                     }`}
                   >
-                    {mode}
+                    {mode === 'UDHAR' ? 'Udhaar' : mode === 'CHEQUE' ? 'Cheque' : mode === 'ONLINE' ? 'Online' : 'Cash'}
                   </button>
                 ))}
               </div>
@@ -547,7 +568,7 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
 
             <div className="space-y-2">
               <div className="flex items-center justify-between px-1">
-                <label className="text-[11px] font-black uppercase tracking-widest text-slate-400">Settled Amount (Rs.)</label>
+                <label className="text-[11px] font-black uppercase tracking-widest text-slate-400">Settled Amount</label>
                 {form.paymentMode !== 'UDHAR' && (
                   <button
                     type="button"
@@ -558,17 +579,20 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
                   </button>
                 )}
               </div>
-              <input
-                name="settledAmount"
-                type="number"
-                min="0"
-                max={form.paymentMode === 'UDHAR' ? 0 : computedTotal || undefined}
-                className="w-full rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 disabled:opacity-50"
-                value={form.paymentMode === 'UDHAR' ? '0' : form.settledAmount}
-                onChange={(e) => setForm((prev) => ({ ...prev, settledAmount: e.target.value }))}
-                disabled={form.paymentMode === 'UDHAR'}
-                placeholder={computedTotal ? computedTotal.toFixed(2) : '0.00'}
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Rs.</span>
+                <input
+                  name="settledAmount"
+                  type="number"
+                  min="0"
+                  max={form.paymentMode === 'UDHAR' ? 0 : computedTotal || undefined}
+                  className="w-full rounded-xl border border-slate-100 bg-slate-50 py-3 pl-11 pr-4 text-sm font-bold outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 disabled:opacity-50"
+                  value={form.paymentMode === 'UDHAR' ? '0' : form.settledAmount}
+                  onChange={(e) => setForm((prev) => ({ ...prev, settledAmount: e.target.value }))}
+                  disabled={form.paymentMode === 'UDHAR'}
+                  placeholder={computedTotal ? computedTotal.toFixed(2) : '0.00'}
+                />
+              </div>
               <div className={`text-[10px] font-black uppercase tracking-[0.2em] px-1 ${
                 balanceAfterPayment > 0 ? 'text-amber-600' : balanceAfterPayment < 0 ? 'text-blue-600' : 'text-emerald-600'
               }`}>
@@ -589,7 +613,10 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Bank Name</label>
-                <input className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none" value={form.bankName} onChange={(e) => setForm((prev) => ({ ...prev, bankName: e.target.value }))} placeholder="Main Bank" />
+                <select className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none" value={form.bankName} onChange={(e) => setForm((prev) => ({ ...prev, bankName: e.target.value }))}>
+                  <option value="">Select bank</option>
+                  {BANK_OPTIONS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+                </select>
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cheque Date</label>
@@ -602,12 +629,9 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
             <div className="mt-4 grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Provider</label>
-                <select className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none" value={form.paymentProvider} onChange={(e) => setForm((prev) => ({ ...prev, paymentProvider: e.target.value as OnlineProvider }))}>
-                  <option value="JAZZCASH">JazzCash</option>
-                  <option value="EASYPAISA">Easypaisa</option>
-                  <option value="BANK_TRANSFER">Bank Transfer</option>
-                  <option value="OTHER">Other</option>
-                </select>
+                  <select className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none" value={form.paymentProvider} onChange={(e) => setForm((prev) => ({ ...prev, paymentProvider: e.target.value as OnlineProvider }))}>
+                    {ONLINE_PROVIDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Reference No</label>
