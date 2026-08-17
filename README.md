@@ -12,7 +12,6 @@ A full-stack business management system built for **Jahania Poultry Service** to
 | **Frontend** | Next.js 16 + TailwindCSS |
 | **Auth** | JWT (Passport.js) |
 | **Deployment** | Vercel (backend & frontend) |
-
 ---
 
 ## 📁 Project Structure
