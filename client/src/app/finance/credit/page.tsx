@@ -16,6 +16,8 @@ import {
   fmt,
   getErrorMessage,
   OnlineProvider,
+  BANK_OPTIONS,
+  ONLINE_PROVIDER_OPTIONS,
   VendorRow,
 } from '../shared';
 
@@ -87,6 +89,7 @@ export default function FinanceCreditPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [vendors, setVendors] = useState<VendorRow[]>([]);
   const [selectedParty, setSelectedParty] = useState<PartyBalanceRow | null>(null);
+  const [settlementDate, setSettlementDate] = useState(getPKTDate());
   const [form, setForm] = useState<SettlementForm>({
     amount: '',
     date: getPKTDate(),
@@ -103,7 +106,7 @@ export default function FinanceCreditPage() {
     setSelectedParty(row);
     setForm({
       amount: String(row.balance),
-      date: getPKTDate(),
+      date: settlementDate,
       paymentMode: 'CASH',
       paymentProvider: 'JAZZCASH',
       paymentReference: '',
@@ -169,6 +172,10 @@ export default function FinanceCreditPage() {
     if (!selectedParty) return;
     const amount = Number(form.amount);
     if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
+    if (amount > selectedParty.balance) {
+      toast.error('Settlement cannot exceed the current udhar balance');
+      return;
+    }
     if (form.paymentMode === 'CHEQUE' && (!form.chequeNo || !form.bankName || !form.chequeDate)) {
       toast.error('Cheque number, bank name, and maturity date are required');
       return;
@@ -287,7 +294,11 @@ export default function FinanceCreditPage() {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Credit Management</h1>
           <p className="text-slate-500 font-medium tracking-tight">Consolidated view of outstanding udhar. Settle balances across all business entities.</p>
         </div>
-        <div className="flex items-center gap-3 self-start">
+        <div className="flex flex-wrap items-end justify-end gap-3 self-start">
+          <div className="min-w-[220px]">
+            <label className="mb-1 ml-1 block text-[10px] font-black uppercase tracking-widest text-slate-400">Settlement date</label>
+            <DatePicker value={settlementDate} onChange={(date) => setSettlementDate(date || getPKTDate())} />
+          </div>
           <button onClick={() => load(true)} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-all active:scale-95">
             <RefreshCw size={18} />
           </button>
@@ -388,7 +399,7 @@ export default function FinanceCreditPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">Payment Method</label>
-                  <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                     {(['CASH', 'CHEQUE', 'ONLINE'] as const).map((mode) => (
                       <button
                         key={mode}
@@ -430,7 +441,10 @@ export default function FinanceCreditPage() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Bank Name</label>
-                  <input className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-4 focus:ring-emerald-500/10 outline-none" value={form.bankName} onChange={e => setForm(p => ({ ...p, bankName: e.target.value }))} />
+                  <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:ring-4 focus:ring-emerald-500/10 outline-none" value={form.bankName} onChange={e => setForm(p => ({ ...p, bankName: e.target.value }))}>
+                    <option value="">Select bank</option>
+                    {BANK_OPTIONS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+                  </select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Maturity Date</label>
@@ -444,10 +458,7 @@ export default function FinanceCreditPage() {
                 <div className="space-y-1">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Gateway</label>
                   <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none" value={form.paymentProvider} onChange={e => setForm(p => ({ ...p, paymentProvider: e.target.value as OnlineProvider }))}>
-                    <option value="JAZZCASH">JazzCash</option>
-                    <option value="EASYPAISA">Easypaisa</option>
-                    <option value="BANK_TRANSFER">Bank Transfer</option>
-                    <option value="OTHER">Other</option>
+                    {ONLINE_PROVIDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1">

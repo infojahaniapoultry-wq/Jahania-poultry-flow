@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import DataTable from '@/components/DataTable';
+import DatePicker from '@/components/DatePicker';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
 import { RefreshCw, Landmark, Search, Clock, MoreHorizontal } from 'lucide-react';
@@ -65,10 +66,10 @@ export default function FinanceChequesPage() {
   const [cheques, setCheques] = useState<ChequeRow[]>([]);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<{ status: '' | 'PENDING' | 'CLEARED' | 'BOUNCED'; sourceType: '' | 'PURCHASE' | 'INVOICE' | 'MANUAL' }>({ status: '', sourceType: '' });
+  const [filters, setFilters] = useState<{ status: '' | 'PENDING' | 'CLEARED' | 'BOUNCED'; sourceType: '' | 'PURCHASE' | 'INVOICE' | 'MANUAL'; date: string }>({ status: '', sourceType: '', date: '' });
   const cacheKey = useMemo(
-    () => `finance-cheques-page:${filters.status || 'ALL'}:${filters.sourceType || 'ALL'}`,
-    [filters.sourceType, filters.status],
+    () => `finance-cheques-page:${filters.status || 'ALL'}:${filters.sourceType || 'ALL'}:${filters.date || 'ALL'}`,
+    [filters.date, filters.sourceType, filters.status],
   );
 
   const load = useCallback(async (force = false) => {
@@ -87,13 +88,17 @@ export default function FinanceChequesPage() {
       const query = new URLSearchParams();
       if (filters.status) query.set('status', filters.status);
       if (filters.sourceType) query.set('sourceType', filters.sourceType);
+      if (filters.date) {
+        query.set('startDate', new Date(`${filters.date}T00:00:00.000+05:00`).toISOString());
+        query.set('endDate', new Date(`${filters.date}T23:59:59.999+05:00`).toISOString());
+      }
       const res = await api.get(`/payments/cheques?${query.toString()}`);
       const rows = res.data as ChequeRow[];
       setCheques(rows);
       setDrafts(Object.fromEntries(rows.map((row) => [row.id, row.status === 'PENDING' ? 'CLEARED' : row.status])));
       setCachedPageData(cacheKey, rows);
     } catch { toast.error('Failed to load registry'); } finally { setLoading(false); }
-  }, [cacheKey, filters.sourceType, filters.status]);
+  }, [cacheKey, filters.date, filters.sourceType, filters.status]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -254,6 +259,9 @@ export default function FinanceChequesPage() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
+        </div>
+        <div className="min-w-[220px]">
+          <DatePicker value={filters.date} onChange={(date) => setFilters((current) => ({ ...current, date }))} placeholder="All cheque dates" />
         </div>
         <div className="flex p-1 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto no-scrollbar">
           {(['', 'PENDING', 'CLEARED', 'BOUNCED'] as const).map(f => (
