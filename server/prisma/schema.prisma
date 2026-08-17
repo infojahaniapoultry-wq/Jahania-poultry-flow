@@ -51,6 +51,7 @@ enum ChequeStatus {
 enum OnlineProvider {
   JAZZCASH
   EASYPAISA
+  NAYAPAY
   BANK_TRANSFER
   OTHER
 }
