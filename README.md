@@ -28,6 +28,12 @@ Poultry-Business-Management-System/
 
 ## 🚀 Getting Started
 
+## ☁️ Deploy to Vercel
+
+The repository is prepared as two Vercel projects: `client` for the Next.js
+frontend and `server` for the NestJS API. Follow the complete deployment guide
+in [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ### Prerequisites
 
 - Node.js v18+

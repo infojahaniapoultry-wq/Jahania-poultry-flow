@@ -1,19 +1,12 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "buildCommand": "npm install && npx prisma generate",
-  "builds": [
-    {
-      "src": "api/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["prisma/**", "src/**"]
-      }
+  "buildCommand": "npm run vercel-build",
+  "functions": {
+    "api/index.ts": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 60,
+      "includeFiles": ["prisma/**", "src/**"]
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api/index.ts"
-    }
-  ]
+  }
 }
