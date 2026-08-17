@@ -1,0 +1,2 @@
+-- Legacy voucher settlement flag migration.
+-- The active codebase now uses a narration-based settlement marker instead.

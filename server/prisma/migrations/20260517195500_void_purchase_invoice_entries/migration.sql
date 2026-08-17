@@ -1,0 +1,9 @@
+ALTER TABLE "PurchaseEntry"
+ADD COLUMN "isVoided" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "voidReason" TEXT,
+ADD COLUMN "voidedAt" TIMESTAMP(3);
+
+ALTER TABLE "Invoice"
+ADD COLUMN "isVoided" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "voidReason" TEXT,
+ADD COLUMN "voidedAt" TIMESTAMP(3);

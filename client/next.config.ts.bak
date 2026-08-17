@@ -1,0 +1,29 @@
+import type { NextConfig } from "next";
+import path from "path";
+
+const nextConfig: NextConfig = {
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
+  // Explicitly tell Turbopack that client/ is the workspace root.
+  // This prevents it from scanning the parent monorepo directory and
+  // watching thousands of unrelated files (server/, service/, etc.).
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
+  experimental: {
+    // Disabled: workerThreads spawns extra OS threads which compounds
+    // CPU usage on laptop hardware — causes freezing during dev startup.
+    workerThreads: false,
+    webpackBuildWorker: false,
+  },
+  async redirects() {
+    return [
+      {
+        source: '/auth',
+        destination: '/login',
+        permanent: true,
+      },
+    ];
+  },
+};
+
+export default nextConfig;

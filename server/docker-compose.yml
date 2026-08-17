@@ -1,0 +1,39 @@
+services:
+  db:
+    profiles: [local]
+    image: postgres:15-alpine
+    container_name: poultry-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      target: production
+    container_name: poultry-api
+    environment:
+      # Read the active database connection from server/.env.
+      # For Neon, use its pooled URL for DATABASE_URL and direct URL for DIRECT_URL.
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      PORT: ${PORT}
+      FRONTEND_URL: ${FRONTEND_URL}
+    ports:
+      - "${PORT}:${PORT}"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
