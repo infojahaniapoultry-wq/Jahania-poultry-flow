@@ -2,7 +2,14 @@ import axios from 'axios';
 import { clearAllCachedPageData, REPORT_CACHE_STORAGE_KEY } from './page-cache';
 import { clearAuthSession, loadStoredAuthToken } from './auth-session';
 
-const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3010/api';
+// Vercel injects NEXT_PUBLIC_API_URL at build time. Keep a production fallback
+// so the deployed app can still reach the live API if the project variable was
+// added to the wrong Vercel project or the deployment was not rebuilt yet.
+const configuredApiUrl =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === 'production'
+    ? 'https://jahania-poultry-flow-back-live.vercel.app/api'
+    : 'http://localhost:3010/api');
 const apiBaseUrl = configuredApiUrl.replace(/\/+$/, '').endsWith('/api')
   ? configuredApiUrl.replace(/\/+$/, '')
   : `${configuredApiUrl.replace(/\/+$/, '')}/api`;
