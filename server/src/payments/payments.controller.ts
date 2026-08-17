@@ -88,8 +88,10 @@ export class PaymentsController {
   getCheques(
     @Query('status') status?: string,
     @Query('sourceType') sourceType?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.paymentsService.getCheques(status, sourceType);
+    return this.paymentsService.getCheques(status, sourceType, startDate, endDate);
   }
 
   @Patch('cheques/:id/status')

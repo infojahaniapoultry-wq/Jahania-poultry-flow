@@ -100,9 +100,11 @@ export class TransportService {
             bankName:
               paymentProvider === OnlineProvider.JAZZCASH
                 ? 'JazzCash'
-                : paymentProvider === OnlineProvider.OTHER
-                  ? 'Online Wallet'
-                  : 'Main Bank',
+                : String(paymentProvider) === 'NAYAPAY'
+                  ? 'NayaPay'
+                  : paymentProvider === OnlineProvider.OTHER
+                    ? 'Online Wallet'
+                    : 'Main Bank',
             date: advDate,
             type: LedgerEntryType.DEBIT,
             amount,

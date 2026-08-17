@@ -13,7 +13,7 @@ export class ExpensesController {
 
   // Accounts
   @Post('accounts')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.DATA_ENTRY)
   createAccount(@Body() dto: CreateExpenseAccountDto) {
     return this.expensesService.createAccount(dto);
   }

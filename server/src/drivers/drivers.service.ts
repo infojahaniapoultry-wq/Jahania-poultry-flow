@@ -154,9 +154,11 @@ export class DriversService {
             bankName:
               dto.paymentProvider === OnlineProvider.JAZZCASH
                 ? 'JazzCash'
-                : dto.paymentProvider === OnlineProvider.OTHER
-                  ? 'Online Wallet'
-                  : 'Main Bank',
+                : String(dto.paymentProvider) === 'NAYAPAY'
+                  ? 'NayaPay'
+                  : dto.paymentProvider === OnlineProvider.OTHER
+                    ? 'Online Wallet'
+                    : 'Main Bank',
             date,
             type: LedgerEntryType.DEBIT,
             amount,

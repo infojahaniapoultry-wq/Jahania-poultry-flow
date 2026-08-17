@@ -47,6 +47,61 @@ export class PaymentsService {
     return sourceType === 'INVOICE' || sourceType === 'VOUCHER';
   }
 
+  private async getVoucherContext(tx: any, voucherId?: number | null) {
+    if (!voucherId) return null;
+    return tx.voucher.findUnique({
+      where: { id: voucherId },
+      select: {
+        id: true,
+        voucherNo: true,
+        type: true,
+        customerId: true,
+        vendorId: true,
+      },
+    });
+  }
+
+  private async finalizeVoucherSettlement(tx: any, voucherNo?: string | null) {
+    if (!voucherNo) return;
+
+    const [invoices, purchases] = await Promise.all([
+      tx.invoice.findMany({
+        where: { paymentReference: voucherNo, isVoided: false },
+        select: { id: true, totalBalance: true, settledAmount: true },
+      }),
+      tx.purchaseEntry.findMany({
+        where: { paymentReference: voucherNo, isVoided: false },
+        select: { id: true, purchaseAmount: true, settledAmount: true },
+      }),
+    ]);
+
+    for (const invoice of invoices) {
+      const settledAmount = toNumber(invoice.settledAmount);
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          paymentStatus:
+            settledAmount >= toNumber(invoice.totalBalance)
+              ? PaymentStatus.COMPLETED
+              : PaymentStatus.OUTSTANDING,
+        },
+      });
+    }
+
+    for (const purchase of purchases) {
+      const settledAmount = toNumber(purchase.settledAmount);
+      await tx.purchaseEntry.update({
+        where: { id: purchase.id },
+        data: {
+          paymentStatus:
+            settledAmount >= toNumber(purchase.purchaseAmount)
+              ? PaymentStatus.COMPLETED
+              : PaymentStatus.OUTSTANDING,
+        },
+      });
+    }
+  }
+
   private async postOutstandingAdjustment(
     tx: any,
     params: {
@@ -64,7 +119,12 @@ export class PaymentsService {
     if (params.sourceType === 'VOUCHER') {
       const voucher = await tx.voucher.findUnique({
         where: { id: params.sourceId },
-        select: { type: true, customerId: true, vendorId: true },
+        select: {
+          type: true,
+          customerId: true,
+          vendorId: true,
+          voucherNo: true,
+        },
       });
       if (!voucher) return;
 
@@ -108,11 +168,13 @@ export class PaymentsService {
       if (remaining > 0) {
         if (voucher.customerId && incoming) {
           const invoices = await tx.invoice.findMany({
-            where: {
-              customerId: voucher.customerId,
-              isVoided: false,
-              settledAmount: { gt: 0 },
-            },
+            where: voucher.voucherNo
+              ? { paymentReference: voucher.voucherNo, isVoided: false }
+              : {
+                  customerId: voucher.customerId,
+                  isVoided: false,
+                  settledAmount: { gt: 0 },
+                },
             select: {
               id: true,
               totalBalance: true,
@@ -136,6 +198,9 @@ export class PaymentsService {
                   nextSettled >= totalBalance
                     ? PaymentStatus.COMPLETED
                     : PaymentStatus.OUTSTANDING,
+                ...(voucher.voucherNo
+                  ? { paymentReference: null, paymentProvider: null }
+                  : {}),
               },
             });
 
@@ -144,11 +209,13 @@ export class PaymentsService {
           }
         } else if (voucher.vendorId && !incoming) {
           const purchases = await tx.purchaseEntry.findMany({
-            where: {
-              vendorId: voucher.vendorId,
-              isVoided: false,
-              settledAmount: { gt: 0 },
-            },
+            where: voucher.voucherNo
+              ? { paymentReference: voucher.voucherNo, isVoided: false }
+              : {
+                  vendorId: voucher.vendorId,
+                  isVoided: false,
+                  settledAmount: { gt: 0 },
+                },
             select: {
               id: true,
               purchaseAmount: true,
@@ -172,6 +239,9 @@ export class PaymentsService {
                   nextSettled >= totalAmount
                     ? PaymentStatus.COMPLETED
                     : PaymentStatus.OUTSTANDING,
+                ...(voucher.voucherNo
+                  ? { paymentReference: null, paymentProvider: null }
+                  : {}),
               },
             });
 
@@ -343,11 +413,12 @@ export class PaymentsService {
       reference?: string | null;
       narration?: string | null;
       reverse?: boolean;
+      incoming?: boolean;
     },
   ) {
     if (!params.sourceType || !params.sourceId) return;
 
-    const incoming = this.isIncomingSource(params.sourceType);
+    const incoming = params.incoming ?? this.isIncomingSource(params.sourceType);
     const reverse = params.reverse ?? false;
     const ledgerType = incoming
       ? reverse
@@ -390,9 +461,18 @@ export class PaymentsService {
     }
 
     if (params.mode === PaymentMode.ONLINE) {
-      if (params.provider === OnlineProvider.BANK_TRANSFER) {
+      if (
+        params.provider === OnlineProvider.BANK_TRANSFER ||
+        params.provider === OnlineProvider.JAZZCASH ||
+        String(params.provider) === 'NAYAPAY'
+      ) {
         await postBankLedger(tx, {
-          bankName: 'Main Bank',
+          bankName:
+            String(params.provider) === 'NAYAPAY'
+              ? 'NayaPay'
+              : params.provider === OnlineProvider.JAZZCASH
+                ? 'JazzCash'
+                : 'Main Bank',
           date: params.date,
           type: ledgerType,
           amount: params.amount,
@@ -848,14 +928,25 @@ export class PaymentsService {
     });
   }
 
-  async getCheques(status?: string, sourceType?: string) {
+  async getCheques(
+    status?: string,
+    sourceType?: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const where: any = {
+      ...(status ? { status: status as any } : {}),
+      ...(sourceType
+        ? { sourceType: sourceType === 'MANUAL' ? null : sourceType }
+        : {}),
+    };
+    if (startDate || endDate) {
+      where.chequeDate = {};
+      if (startDate) where.chequeDate.gte = new Date(startDate);
+      if (endDate) where.chequeDate.lte = new Date(endDate);
+    }
     return this.prisma.chequeLog.findMany({
-      where: {
-        ...(status ? { status: status as any } : {}),
-        ...(sourceType
-          ? { sourceType: sourceType === 'MANUAL' ? null : sourceType }
-          : {}),
-      },
+      where,
       include: {
         purchase: { include: { vendor: { select: { id: true, name: true } } } },
         invoice: {
@@ -903,6 +994,10 @@ export class PaymentsService {
 
     return this.prisma.$transaction(async (tx) => {
       if (nextStatus === ChequeStatus.CLEARED) {
+        const voucher =
+          sourceType === 'VOUCHER'
+            ? await this.getVoucherContext(tx, sourceId)
+            : null;
         const purchaseSource =
           cheque.purchase ??
           (sourceType === 'PURCHASE' && sourceId
@@ -928,6 +1023,10 @@ export class PaymentsService {
           mode: PaymentMode.CHEQUE,
           reference: cheque.chequeNo,
           narration: `Cheque cleared - ${cheque.chequeNo}`,
+          incoming: voucher
+            ? voucher.type === VoucherType.RECOVERY ||
+              voucher.type === VoucherType.CREDIT
+            : undefined,
         });
         if (purchaseSource) {
           const purchaseAmount = Number(purchaseSource.purchaseAmount ?? 0);
@@ -1003,6 +1102,10 @@ export class PaymentsService {
             null,
             amount,
           );
+        }
+
+        if (voucher) {
+          await this.finalizeVoucherSettlement(tx, voucher.voucherNo);
         }
       } else if (nextStatus === ChequeStatus.BOUNCED) {
         if (sourceType === 'VOUCHER') {
@@ -1179,6 +1282,10 @@ export class PaymentsService {
 
     return this.prisma.$transaction(async (tx) => {
       if (nextStatus === PaymentStatus.COMPLETED) {
+        const voucher =
+          sourceType === 'VOUCHER'
+            ? await this.getVoucherContext(tx, sourceId)
+            : null;
         const purchaseSource =
           online.purchase ??
           (sourceType === 'PURCHASE' && sourceId
@@ -1215,6 +1322,10 @@ export class PaymentsService {
           provider,
           reference: online.referenceNo,
           narration: `Online payment completed - ${provider}`,
+          incoming: voucher
+            ? voucher.type === VoucherType.RECOVERY ||
+              voucher.type === VoucherType.CREDIT
+            : undefined,
         });
         await this.updateSourceStatus(
           tx,
@@ -1227,6 +1338,9 @@ export class PaymentsService {
           provider,
           sourceFinalSettled,
         );
+        if (voucher) {
+          await this.finalizeVoucherSettlement(tx, voucher.voucherNo);
+        }
       } else if (nextStatus === PaymentStatus.FAILED) {
         await this.postOutstandingAdjustment(tx, {
           sourceType,

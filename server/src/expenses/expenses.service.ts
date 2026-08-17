@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseAccountDto, CreateExpenseEntryDto } from './expenses.dto';
 import {
@@ -43,6 +43,9 @@ export class ExpensesService {
 
     const expDate = normalizeDate(dto.date);
     const amount = toNumber(dto.amount);
+    if (amount <= 0) {
+      throw new BadRequestException('Expense amount must be greater than zero');
+    }
     const payMode = dto.paymentMode ?? PaymentMode.CASH;
     const paymentProvider = dto.paymentProvider;
     const paymentReference = dto.paymentReference ?? dto.voucherRef;
@@ -93,9 +96,11 @@ export class ExpensesService {
             bankName:
               paymentProvider === OnlineProvider.JAZZCASH
                 ? 'JazzCash'
-                : paymentProvider === OnlineProvider.OTHER
-                  ? 'Online Wallet'
-                  : 'Main Bank',
+                : String(paymentProvider) === 'NAYAPAY'
+                  ? 'NayaPay'
+                  : paymentProvider === OnlineProvider.OTHER
+                    ? 'Online Wallet'
+                    : 'Main Bank',
             date: expDate,
             type: LedgerEntryType.DEBIT,
             amount,
