@@ -11,6 +11,7 @@ import { Plus, Car, BookOpen, Pencil, Phone, Wallet, CheckCircle2, XCircle, Load
 import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
 import { isPhoneNumberLike, toOptionalPhoneNumber } from '@/lib/phone';
 import { formatLedgerRate, formatLedgerWeight, LedgerCommodityFields } from '@/lib/ledger';
+import { ONLINE_PROVIDER_OPTIONS } from '../finance/shared';
 
 interface Driver {
   id: number;
@@ -450,9 +451,7 @@ export default function DriversPage() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Provider</label>
                   <select className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" value={settlementForm.paymentProvider} onChange={e => setSettlementForm(p => ({ ...p, paymentProvider: e.target.value }))}>
-                    <option value="JAZZCASH">JazzCash</option>
-                    <option value="EASYPAISA">Easypaisa</option>
-                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                    {ONLINE_PROVIDER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1">
