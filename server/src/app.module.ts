@@ -15,6 +15,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { TransportModule } from './transport/transport.module';
 import { ReportsModule } from './reports/reports.module';
 import { MarketRatesModule } from './market-rates/market-rates.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { MarketRatesModule } from './market-rates/market-rates.module';
     TransportModule,
     ReportsModule,
     MarketRatesModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
