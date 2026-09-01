@@ -99,6 +99,8 @@ type StatementBusinessRow = {
   narration?: string | null;
   paymentMode?: string | null;
   paymentStatus?: string | null;
+  balanceEffect?: 'CREDIT' | 'DEBIT' | 'SETTLED';
+  balanceAmount?: number;
   referenceType?: string | null;
   referenceId?: number | null;
   weightKg: number | null;
@@ -169,8 +171,8 @@ function buildOptionalDateFilter(startDate?: string, endDate?: string) {
   if (!startDate && !endDate) return {};
 
   const date: { gte?: Date; lte?: Date } = {};
-  if (startDate) date.gte = new Date(startDate);
-  if (endDate) date.lte = new Date(endDate);
+  if (startDate) date.gte = dayRange(startDate).start;
+  if (endDate) date.lte = dayRange(endDate).end;
 
   return { date };
 }
@@ -613,10 +615,13 @@ export class ReportsService {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id: vendorId },
     });
+    const statementEndFilter = endDate
+      ? buildOptionalDateFilter(undefined, endDate)
+      : {};
     const ledgerRows = await this.prisma.vendorLedger.findMany({
       where: {
         vendorId,
-        ...buildOptionalDateFilter(startDate, endDate),
+        ...statementEndFilter,
       },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     });
@@ -627,7 +632,7 @@ export class ReportsService {
       where: {
         vendorId,
         isVoided: false,
-        ...buildOptionalDateFilter(startDate, endDate),
+        ...statementEndFilter,
       },
       select: {
         id: true,
@@ -647,7 +652,7 @@ export class ReportsService {
     const voucherIds = Array.from(
       new Set(
         ledgerRows
-          .filter((row) => row.referenceType === 'VOUCHER')
+          .filter((row) => row.referenceType?.includes('VOUCHER'))
           .map((row) => row.referenceId)
           .filter((id): id is number => typeof id === 'number'),
       ),
@@ -692,8 +697,8 @@ export class ReportsService {
     }
     const ledgerDetails = await loadLedgerDetails(this.prisma, ledgerRows);
 
-    const openingBalance = toNumber(vendor?.openingBalance);
-    let runningBalance = openingBalance;
+    const baseOpeningBalance = toNumber(vendor?.openingBalance);
+    let runningBalance = baseOpeningBalance;
     const statementEvents = [
       ...ledgerRows
         .filter((row) => row.referenceType !== 'PURCHASE')
@@ -730,7 +735,7 @@ export class ReportsService {
             ? purchaseAmount
             : 0;
 
-        runningBalance += initialOutstanding;
+          runningBalance += initialOutstanding;
 
         return {
           id: event.id,
@@ -740,6 +745,10 @@ export class ReportsService {
           runningBalance,
           narration:
             event.purchase.notes ?? `Purchase from ${vendor?.name ?? 'Vendor'}`,
+          paymentMode: event.purchase.paymentMode,
+          paymentStatus: event.purchase.paymentStatus,
+          balanceEffect: initialOutstanding > 0 ? 'CREDIT' : 'SETTLED',
+          balanceAmount: initialOutstanding,
           referenceType: 'PURCHASE',
           referenceId: event.purchase.id,
           weightKg: toNumber(event.purchase.weightKg),
@@ -748,7 +757,7 @@ export class ReportsService {
         };
       }
 
-      if (event.row.referenceType === 'VOUCHER' && typeof event.row.referenceId === 'number' && (event.row.narration ?? '').startsWith('Credit settlement')) {
+      if (event.row.referenceType?.includes('VOUCHER') && typeof event.row.referenceId === 'number' && (event.row.narration ?? '').startsWith('Credit settlement')) {
         const voucher = voucherById.get(event.row.referenceId);
         const paymentStatus = voucher?.paymentMode === 'CHEQUE'
           ? chequeByVoucherId.get(event.row.referenceId)
@@ -765,6 +774,8 @@ export class ReportsService {
           narration: 'Udhaar settlement',
           paymentMode: voucher?.paymentMode,
           paymentStatus,
+          balanceEffect: 'DEBIT',
+          balanceAmount: toNumber(event.row.amount),
           referenceType: event.row.referenceType,
           referenceId: event.row.referenceId,
           weightKg: null,
@@ -778,6 +789,19 @@ export class ReportsService {
         event.row.type === 'DEBIT'
           ? runningBalance - amount
           : runningBalance + amount;
+      const voucher =
+        event.row.referenceType?.includes('VOUCHER') &&
+        typeof event.row.referenceId === 'number'
+          ? voucherById.get(event.row.referenceId)
+          : undefined;
+      const paymentStatus =
+        voucher?.paymentMode === 'CHEQUE'
+          ? chequeByVoucherId.get(event.row.referenceId)
+          : voucher?.paymentMode === 'ONLINE'
+            ? onlineByVoucherId.get(event.row.referenceId)
+            : voucher
+              ? 'COMPLETED'
+              : undefined;
       return {
         id: event.row.id,
         date: event.row.date,
@@ -785,6 +809,10 @@ export class ReportsService {
         amount: event.row.amount,
         runningBalance,
         narration: event.row.narration,
+        paymentMode: voucher?.paymentMode,
+        paymentStatus,
+        balanceEffect: event.row.type === 'DEBIT' ? 'DEBIT' : 'CREDIT',
+        balanceAmount: amount,
         referenceType: event.row.referenceType,
         referenceId: event.row.referenceId,
         ...detailsForLedgerRow(ledgerDetails, event.row),
@@ -792,11 +820,19 @@ export class ReportsService {
       },
     );
 
+    const statementStart = startDate ? dayRange(startDate).start : null;
+    const visibleLedger = statementStart
+      ? ledger.filter((row) => row.date >= statementStart)
+      : ledger;
+    const periodOpeningBalance = statementStart
+      ? [...ledger].reverse().find((row) => row.date < statementStart)?.runningBalance ?? baseOpeningBalance
+      : baseOpeningBalance;
+
     return {
       vendor,
-      openingBalance,
-      closingBalance: ledger.at(-1)?.runningBalance ?? openingBalance,
-      ledger,
+      openingBalance: periodOpeningBalance,
+      closingBalance: visibleLedger.at(-1)?.runningBalance ?? periodOpeningBalance,
+      ledger: visibleLedger,
     };
   }
 
