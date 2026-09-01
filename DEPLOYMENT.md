@@ -8,22 +8,63 @@ This repository is a monorepo and should be deployed as two Vercel projects:
 Vercel project settings are scoped to each project, so set the Root Directory to
 the matching folder when importing the same Git repository twice.
 
-## 1. Prepare the database
+## 1. Prepare Supabase PostgreSQL
 
-Use a production PostgreSQL database such as Neon. Add the database connection
-strings to the backend project only:
+This project is Prisma/PostgreSQL based, so Supabase works without changing the
+Prisma schema or adding the Supabase JavaScript SDK.
 
-- `DATABASE_URL`: pooled connection string for normal API queries
-- `DIRECT_URL`: direct connection string for Prisma migrations
+Create a Supabase project, then open **Connect** and copy these two URLs:
 
-Run the production migration from a trusted local terminal before using the API:
+- `DATABASE_URL`: **Transaction pooler**, port `6543`, for the Vercel API.
+  Append `pgbouncer=true` to the query string for Prisma.
+- `DIRECT_URL`: **Direct connection**, port `5432`, for Prisma migrations. If
+  the migration machine has no IPv6 support, use Supabase **Session pooler**,
+  port `5432`, instead.
+
+The checked-in template is in [`server/.env.example`](./server/.env.example).
+Supabase connection modes are explained in the [official connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+Run the production migration from a trusted terminal before using the API:
 
 ```bash
 cd server
-DATABASE_URL="<pooled-url>" DIRECT_URL="<direct-url>" npx prisma migrate deploy
+DATABASE_URL="<supabase-transaction-pooler-url>" \
+DIRECT_URL="<supabase-direct-or-session-url>" \
+npx prisma migrate deploy
 ```
 
 Do not commit either connection string.
+
+### Move existing Neon data to Supabase
+
+If the Supabase project is empty, migrate the existing PostgreSQL data with
+`pg_dump` and `pg_restore`. Use the Supabase **Session pooler** or direct URL
+for restore, not the transaction pooler:
+
+```bash
+export OLD_DATABASE_URL="<current-neon-url>"
+export SUPABASE_SESSION_URL="<supabase-session-pooler-url>"
+
+pg_dump --format=custom --no-owner --no-privileges \
+  "$OLD_DATABASE_URL" > poultryflow.dump
+
+pg_restore --no-owner --no-privileges \
+  --dbname="$SUPABASE_SESSION_URL" poultryflow.dump
+```
+
+Validate the restored records before switching production traffic. Keep the
+dump private and delete it securely after verification. Do not use
+`--clean --if-exists` unless you have explicitly confirmed that the Supabase
+database may be overwritten.
+
+For a new empty database with no existing records, use the Prisma migrations:
+
+```bash
+cd server
+DATABASE_URL="<supabase-transaction-pooler-url>" \
+DIRECT_URL="<supabase-direct-or-session-url>" \
+npx prisma migrate deploy
+```
 
 ## 2. Deploy the backend first
 
@@ -36,8 +77,8 @@ In Vercel:
 4. Add these Production environment variables:
 
    ```text
-   DATABASE_URL=<pooled PostgreSQL URL>
-   DIRECT_URL=<direct PostgreSQL URL>
+   DATABASE_URL=<Supabase transaction pooler URL with pgbouncer=true>
+   DIRECT_URL=<Supabase direct or session URL>
    JWT_SECRET=<long random secret>
    JWT_EXPIRES_IN=7d
    FRONTEND_URL=https://your-frontend.vercel.app
