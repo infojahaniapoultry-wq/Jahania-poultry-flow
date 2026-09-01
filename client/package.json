@@ -6,7 +6,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "next dev --turbopack",
     "server": "fuser -k 3000/tcp 2>/dev/null; sleep 1; node server.js",
     "build": "next build --webpack",
     "start": "next start",
