@@ -7,11 +7,12 @@ import { useAuth } from '@/lib/auth';
 import api from '@/lib/api';
 import { getCachedPageData, setCachedPageData } from '@/lib/page-cache';
 import { toast } from 'react-hot-toast';
-import { Plus, BookOpen, Pencil, Phone, MapPin, Loader2, Search, CheckCircle2, XCircle, Package } from 'lucide-react';
+import { Plus, BookOpen, Pencil, Phone, MapPin, Loader2, Search, CheckCircle2, XCircle, Package, CalendarDays, RotateCcw, WalletCards } from 'lucide-react';
 import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
 import { isPhoneNumberLike, toOptionalPhoneNumber } from '@/lib/phone';
 import { formatLedgerRate, formatLedgerWeight, LedgerCommodityFields } from '@/lib/ledger';
 import { VOICEPLS_URL } from '@/lib/branding';
+import DatePicker from '@/components/DatePicker';
 
 interface Vendor {
   id: number; 
@@ -31,6 +32,11 @@ interface LedgerEntry extends LedgerCommodityFields {
   runningBalance: string; 
   narration?: string; 
   referenceType?: string;
+  referenceId?: number;
+  paymentMode?: string;
+  paymentStatus?: string;
+  balanceEffect?: 'CREDIT' | 'DEBIT' | 'SETTLED';
+  balanceAmount?: number;
 }
 
 interface LedgerSummary {
@@ -59,7 +65,9 @@ export default function VendorsPage() {
   const [ledgerVendor, setLedgerVendor] = useState<Vendor | null>(null);
   const [ledger, setLedger] = useState<LedgerSummary | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
-  const ledgerCacheRef = useRef<Record<number, LedgerSummary>>({});
+  const ledgerCacheRef = useRef<Record<string, LedgerSummary>>({});
+  const [ledgerDate, setLedgerDate] = useState('');
+  const [ledgerAppliedDate, setLedgerAppliedDate] = useState('');
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [statusSavingId, setStatusSavingId] = useState<number | null>(null);
@@ -90,11 +98,12 @@ export default function VendorsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const openLedger = useCallback(async (v: Vendor) => {
+  const openLedger = useCallback(async (v: Vendor, date = ledgerAppliedDate, force = false) => {
     setLedgerVendor(v);
 
-    const cached = ledgerCacheRef.current[v.id];
-    if (cached) {
+    const cacheKey = `${v.id}:${date}`;
+    const cached = ledgerCacheRef.current[cacheKey];
+    if (!force && cached) {
       setLedger(cached);
       setLedgerLoading(false);
       return;
@@ -103,28 +112,38 @@ export default function VendorsPage() {
     setLedger(null);
     setLedgerLoading(true);
     try {
-      const r = await api.get(`/vendors/${v.id}/ledger`);
-      ledgerCacheRef.current[v.id] = r.data;
-      setLedger(r.data);
+      const params = new URLSearchParams();
+      if (date) {
+        params.set('startDate', date);
+        params.set('endDate', date);
+      }
+      const r = await api.get(`/vendors/${v.id}/ledger?${params.toString()}`);
+      const statement: LedgerSummary = { ...r.data, entries: r.data.ledger ?? [] };
+      if (statement.entries.length > 0) {
+        ledgerCacheRef.current[cacheKey] = statement;
+      } else {
+        delete ledgerCacheRef.current[cacheKey];
+      }
+      setLedger(statement);
     } catch {
       toast.error('Failed to load ledger');
     } finally {
       setLedgerLoading(false);
     }
-  }, []);
+  }, [ledgerAppliedDate]);
 
   useEffect(() => {
     const handleBusinessDataUpdated = () => {
       ledgerCacheRef.current = {};
       void load(true);
       if (ledgerVendor) {
-        void openLedger(ledgerVendor);
+        void openLedger(ledgerVendor, ledgerAppliedDate);
       }
     };
 
     window.addEventListener(BUSINESS_DATA_UPDATED_EVENT, handleBusinessDataUpdated);
     return () => window.removeEventListener(BUSINESS_DATA_UPDATED_EVENT, handleBusinessDataUpdated);
-  }, [ledgerVendor, load, openLedger]);
+  }, [ledgerAppliedDate, ledgerVendor, load, openLedger]);
 
   const openEdit = (v: Vendor) => {
     setEditVendor(v);
@@ -153,10 +172,17 @@ export default function VendorsPage() {
     e.preventDefault();
     if (!editVendor) return;
     if (form.contact && !isPhoneNumberLike(form.contact)) { toast.error('Enter a valid contact number'); return; }
+    const openingBalance = Number(form.openingBalance);
+    if (!Number.isFinite(openingBalance)) { toast.error('Enter a valid opening balance'); return; }
     setSaving(true);
     try {
-      await api.patch(`/vendors/${editVendor.id}`, { name: form.name, contact: toOptionalPhoneNumber(form.contact), address: form.address || undefined });
-      toast.success('Information updated!'); 
+      await api.patch(`/vendors/${editVendor.id}`, {
+        name: form.name,
+        contact: toOptionalPhoneNumber(form.contact),
+        address: form.address || undefined,
+        openingBalance,
+      });
+      toast.success('Vendor profile and opening balance updated!');
       setEditVendor(null); 
       setForm(emptyForm); 
       notifyBusinessDataUpdated();
@@ -256,7 +282,7 @@ export default function VendorsPage() {
         <div className="flex items-center justify-end gap-2">
           <button 
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold hover:bg-emerald-100 transition-colors"
-            onClick={() => openLedger(r)}
+            onClick={() => showVendorLedger(r)}
           >
             <BookOpen size={14} /> Ledger
           </button>
@@ -280,14 +306,44 @@ export default function VendorsPage() {
   ];
 
   const ledgerCols = [
-    { key: 'date', label: 'Date', render: (r: LedgerEntry) => <span className="font-medium text-slate-600">{new Date(r.date).toLocaleDateString('en-PK')}</span> },
-    { key: 'type', label: 'Flow', render: (r: LedgerEntry) => <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${r.type === 'DEBIT' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>{r.type}</span> },
+    { key: 'date', label: 'Date', sortable: true, sortValue: (r: LedgerEntry) => new Date(r.date), render: (r: LedgerEntry) => <span className="font-medium text-slate-600 whitespace-nowrap">{new Date(r.date).toLocaleDateString('en-PK')}</span> },
+    { key: 'type', label: 'Transaction', render: (r: LedgerEntry) => {
+      const isDebit = r.balanceEffect === 'DEBIT' || (r.balanceEffect == null && ['DEBIT', 'CASH', 'CHEQUE', 'ONLINE', 'CLEARED UDHAAR'].includes(r.type));
+      return <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${isDebit ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>{r.type.replaceAll('_', ' ')}</span>;
+    } },
+    { key: 'paymentMode', label: 'Payment', render: (r: LedgerEntry) => <div className="flex flex-col gap-0.5"><span className="text-xs font-black text-slate-700">{r.paymentMode || (r.referenceType === 'PURCHASE' ? 'Purchase' : 'Adjustment')}</span>{r.paymentStatus && <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">{r.paymentStatus}</span>}</div> },
     { key: 'weightKg', label: 'Weight', align: 'right' as const, render: (r: LedgerEntry) => <span className="font-medium text-slate-700 whitespace-nowrap">{formatLedgerWeight(r.weightKg)}</span> },
     { key: 'ratePerKg', label: 'Rate', align: 'right' as const, render: (r: LedgerEntry) => <span className="font-medium text-slate-700 whitespace-nowrap">{formatLedgerRate(r)}</span> },
     { key: 'amount', label: 'Amount', align: 'right' as const, render: (r: LedgerEntry) => <span className="font-bold text-slate-900">{fmt(r.amount)}</span> },
     { key: 'runningBalance', label: 'New Balance', align: 'right' as const, render: (r: LedgerEntry) => <span className="font-black text-slate-900">{fmt(r.runningBalance)}</span> },
-    { key: 'narration', label: 'Notes', render: (r: LedgerEntry) => <span className="text-xs text-slate-400 italic">{formatLedgerNarration(r)}</span> },
+    { key: 'narration', label: 'Notes', render: (r: LedgerEntry) => <div className="max-w-[220px]"><span className="block text-xs text-slate-500">{formatLedgerNarration(r)}</span>{r.referenceId && <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Ref #{r.referenceId}</span>}</div> },
   ];
+
+  const ledgerTotals = useMemo(() => {
+    const entries = ledger?.entries ?? [];
+    return {
+      transactions: entries.length,
+      credits: entries.filter((entry) => entry.balanceEffect === 'CREDIT').reduce((sum, entry) => sum + Number(entry.balanceAmount ?? entry.amount), 0),
+      debits: entries.filter((entry) => entry.balanceEffect === 'DEBIT').reduce((sum, entry) => sum + Number(entry.balanceAmount ?? entry.amount), 0),
+    };
+  }, [ledger]);
+
+  const applyLedgerDate = () => {
+    setLedgerAppliedDate(ledgerDate);
+    if (ledgerVendor) void openLedger(ledgerVendor, ledgerDate);
+  };
+
+  const clearLedgerDate = () => {
+    setLedgerDate('');
+    setLedgerAppliedDate('');
+    if (ledgerVendor) void openLedger(ledgerVendor, '', true);
+  };
+
+  const showVendorLedger = (vendor: Vendor) => {
+    setLedgerDate('');
+    setLedgerAppliedDate('');
+    void openLedger(vendor, '', true);
+  };
 
   const vendorFormContent = (
     <div className="space-y-6">
@@ -305,8 +361,9 @@ export default function VendorsPage() {
           <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">Opening Balance</label>
           <div className="relative">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 uppercase">Rs.</div>
-            <input type="number" className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all disabled:opacity-50" value={form.openingBalance} onChange={e => setForm(f => ({ ...f, openingBalance: e.target.value }))} disabled={!!editVendor} />
+            <input type="number" step="0.01" className="w-full pl-12 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-sm font-bold focus:bg-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all" value={form.openingBalance} onChange={e => setForm(f => ({ ...f, openingBalance: e.target.value }))} />
           </div>
+          {editVendor && <div className="text-[10px] font-medium text-slate-400">Changing this adjusts the current balance by the same amount.</div>}
         </div>
         <div className="space-y-1.5 md:col-span-2">
           <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1">Farm Location / Address</label>
@@ -400,9 +457,9 @@ export default function VendorsPage() {
         {vendorFormContent}
       </Modal>
 
-      <Modal open={!!ledgerVendor} onClose={() => setLedgerVendor(null)} title={`Financial Ledger — ${ledgerVendor?.name}`} size="lg">
+      <Modal open={!!ledgerVendor} onClose={() => setLedgerVendor(null)} title={`Financial Ledger — ${ledgerVendor?.name}`} size="xl">
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
              <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Opening Balance</div>
                <div className="text-lg font-black text-slate-900">{ledger ? fmt(ledger.openingBalance) : '—'}</div>
@@ -411,9 +468,26 @@ export default function VendorsPage() {
                <div className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1">Net Balance</div>
                <div className="text-lg font-black text-white">{ledger ? fmt(ledger.closingBalance) : '—'}</div>
              </div>
+             <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl">
+               <div className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">Credits</div>
+               <div className="text-lg font-black text-emerald-700">{fmt(ledgerTotals.credits)}</div>
+             </div>
+             <div className="p-4 bg-red-50 border border-red-100 rounded-2xl">
+               <div className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Debits / Paid</div>
+               <div className="text-lg font-black text-red-600">{fmt(ledgerTotals.debits)}</div>
+             </div>
+          </div>
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500"><CalendarDays size={15} className="text-emerald-600" /> Filter by transaction date</div>
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,320px)_auto_auto] gap-3 items-end">
+              <div><label className="mb-1.5 block text-[10px] font-black uppercase tracking-widest text-slate-400">Date</label><DatePicker value={ledgerDate} onChange={setLedgerDate} placeholder="All recent transactions" /></div>
+              <button type="button" onClick={applyLedgerDate} className="flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 text-xs font-black text-white transition-colors hover:bg-emerald-700"><Search size={14} /> Apply</button>
+              <button type="button" onClick={clearLedgerDate} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-500 transition-colors hover:bg-slate-100"><RotateCcw size={14} /> Show recent</button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400"><WalletCards size={13} /> {ledgerTotals.transactions} transactions in this view <span className="text-slate-300">•</span> {ledgerAppliedDate ? `Showing ${new Date(`${ledgerAppliedDate}T00:00:00`).toLocaleDateString('en-PK')}` : 'Showing latest transactions'} <span className="text-slate-300">•</span> Cash, credit, cheque, online and adjustments included</div>
           </div>
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-            <DataTable columns={ledgerCols} data={ledger?.entries ?? []} loading={ledgerLoading} emptyMessage="No transactions recorded for this vendor." />
+            <DataTable columns={ledgerCols} data={ledger?.entries ?? []} loading={ledgerLoading} emptyMessage={ledgerAppliedDate ? 'No transactions recorded for this vendor on this date. Choose Show recent to view the latest transactions.' : 'No transactions recorded for this vendor yet.'} keyField="id" defaultSortKey="date" defaultSortDirection="desc" pageSizeOptions={[10, 25, 50]} defaultPageSize={10} />
           </div>
           <div className="border-t border-slate-100 pt-4 text-center text-[9px] font-bold tracking-wide text-slate-400">Powered by Voicepls • AI &amp; Software Development Company • <a href={VOICEPLS_URL} className="text-emerald-600 underline underline-offset-2">voicepls.com</a></div>
         </div>
