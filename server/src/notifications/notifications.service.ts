@@ -36,6 +36,63 @@ function item(
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * The application header only needs totals for its bell badge.  Avoid
+   * loading every open record and its related party on every route change;
+   * the full list remains available on the Notifications page.
+   */
+  async getNotificationSummary() {
+    const [cheques, customers, vendors, drivers, onlinePayments] =
+      await Promise.all([
+        this.prisma.chequeLog.aggregate({
+          where: { status: ChequeStatus.PENDING },
+          _count: { _all: true },
+          _sum: { amount: true },
+        }),
+        this.prisma.customer.aggregate({
+          where: { currentBalance: { gt: 0 }, isActive: true },
+          _count: { _all: true },
+          _sum: { currentBalance: true },
+        }),
+        this.prisma.vendor.aggregate({
+          where: { currentBalance: { gt: 0 }, isActive: true },
+          _count: { _all: true },
+          _sum: { currentBalance: true },
+        }),
+        this.prisma.driver.aggregate({
+          where: { advanceBalance: { gt: 0 }, isActive: true },
+          _count: { _all: true },
+          _sum: { advanceBalance: true },
+        }),
+        this.prisma.onlinePaymentLog.aggregate({
+          where: { status: PaymentStatus.PENDING },
+          _count: { _all: true },
+          _sum: { amount: true },
+        }),
+      ]);
+
+    const counts = {
+      CHEQUE: cheques._count._all,
+      CUSTOMER_UDHAAR: customers._count._all,
+      VENDOR_UDHAAR: vendors._count._all,
+      DRIVER_EXPENSE: drivers._count._all,
+      ONLINE_PAYMENT: onlinePayments._count._all,
+    };
+
+    return {
+      generatedAt: new Date(),
+      totalCount: Object.values(counts).reduce((total, count) => total + count, 0),
+      totalAmount:
+        toNumber(cheques._sum.amount) +
+        toNumber(customers._sum.currentBalance) +
+        toNumber(vendors._sum.currentBalance) +
+        toNumber(drivers._sum.advanceBalance) +
+        toNumber(onlinePayments._sum.amount),
+      counts,
+      items: [],
+    };
+  }
+
   async getNotifications() {
     const [cheques, customers, vendors, drivers, onlinePayments] =
       await Promise.all([
