@@ -109,4 +109,28 @@ describe('VendorsService ledger statement', () => {
       }),
     ]);
   });
+
+  it('keeps current balance aligned when the opening balance is corrected', async () => {
+    const tx = {
+      vendor: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 7,
+          openingBalance: 2000,
+          currentBalance: 3500,
+        }),
+        update: jest.fn().mockResolvedValue({ id: 7 }),
+      },
+    };
+    const service = new VendorsService(tx as any);
+
+    await service.update(7, { openingBalance: 2500 });
+
+    expect(tx.vendor.update).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: {
+        openingBalance: 2500,
+        currentBalance: 4000,
+      },
+    });
+  });
 });
