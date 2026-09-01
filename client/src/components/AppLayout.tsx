@@ -49,9 +49,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<PendingNotificationsResponse | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
 
-  const loadNotifications = useCallback(async () => {
+  const loadNotifications = useCallback(async (includeItems = false) => {
     try {
-      const response = await api.get<PendingNotificationsResponse>('/notifications');
+      const response = await api.get<PendingNotificationsResponse>('/notifications', {
+        params: includeItems ? undefined : { summary: 'true' },
+      });
       setNotifications(response.data);
       return response.data;
     } catch {
@@ -129,7 +131,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     const showWelcomeAlert = window.sessionStorage.getItem('poultryflow-login-alert') === '1';
     if (showWelcomeAlert) window.sessionStorage.removeItem('poultryflow-login-alert');
 
-    void loadNotifications().then((data) => {
+    void loadNotifications(showWelcomeAlert).then((data) => {
       if (cancelled || !data || !showWelcomeAlert || data.totalCount === 0) return;
       setWelcomeOpen(true);
       playNotificationSound();
