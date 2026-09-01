@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { LedgerEntryType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVendorDto, UpdateVendorDto } from './vendors.dto';
 import { toNumber } from '../shared/ledger-posting';
+import { ReportsService } from '../reports/reports.service';
 import {
   detailsForLedgerRow,
   loadLedgerDetails,
@@ -10,7 +11,10 @@ import {
 
 @Injectable()
 export class VendorsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private readonly reportsService?: ReportsService,
+  ) {}
 
   async create(dto: CreateVendorDto) {
     const opening = dto.openingBalance ?? 0;
@@ -40,8 +44,21 @@ export class VendorsService {
   }
 
   async update(id: number, dto: UpdateVendorDto) {
-    await this.findOne(id);
-    return this.prisma.vendor.update({ where: { id }, data: dto });
+    const vendor = await this.findOne(id);
+    const data = {
+      ...dto,
+      ...(dto.openingBalance === undefined
+        ? {}
+        : {
+            // Keep the vendor's live balance in sync with a corrected opening
+            // balance, without changing the historical transaction ledger.
+            currentBalance:
+              toNumber(vendor.currentBalance) +
+              (dto.openingBalance - toNumber(vendor.openingBalance)),
+          }),
+    };
+
+    return this.prisma.vendor.update({ where: { id }, data });
   }
 
   async remove(id: number) {
@@ -53,6 +70,18 @@ export class VendorsService {
   }
 
   async getLedger(id: number, startDate?: string, endDate?: string) {
+    if (this.reportsService) {
+      const statement = await this.reportsService.getVendorStatement(
+        id,
+        startDate,
+        endDate,
+      );
+      return {
+        ...statement,
+        entries: statement.ledger,
+      };
+    }
+
     const vendor = await this.findOne(id);
     const where: any = { vendorId: id };
     if (startDate || endDate) {
