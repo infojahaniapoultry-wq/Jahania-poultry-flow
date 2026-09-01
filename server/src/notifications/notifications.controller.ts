@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { NotificationsService } from './notifications.service';
@@ -9,7 +9,9 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
-  getNotifications() {
-    return this.notificationsService.getNotifications();
+  getNotifications(@Query('summary') summary?: string) {
+    return summary === 'true'
+      ? this.notificationsService.getNotificationSummary()
+      : this.notificationsService.getNotifications();
   }
 }
