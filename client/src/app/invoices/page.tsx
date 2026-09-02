@@ -6,7 +6,7 @@ import SalesInvoiceModal from '@/components/SalesInvoiceModal';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { toast } from 'react-hot-toast';
-import { Download, Eye, FileText, Pencil, RefreshCw, Trash2, Truck, Loader2 } from 'lucide-react';
+import { Ban, Download, Eye, FileText, Pencil, RefreshCw, Trash2, Truck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import DatePicker from '@/components/DatePicker';
 import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
@@ -181,7 +181,10 @@ export default function InvoicesPage() {
         totalAmount: invoice.totalAmount,
         totalBalance: invoice.totalBalance,
         settledAmount: invoice.settledAmount,
-        remainingBalance: Number(invoice.totalBalance ?? 0) - Number(invoice.settledAmount ?? 0),
+        // Invoice payment status is based on this invoice's amount. totalBalance
+        // also contains the customer's previous/opening balance and must not make
+        // a fully paid invoice look partially paid.
+        remainingBalance: Number(invoice.totalAmount ?? 0) - Number(invoice.settledAmount ?? 0),
         paymentMode: invoice.paymentMode,
         paymentStatus: invoice.paymentStatus,
         paymentReference: invoice.paymentReference,
@@ -486,7 +489,7 @@ export default function InvoicesPage() {
 
   const handleInvoiceExport = async (entry: RegisterRow) => {
     if (entry.kind !== 'SELLING' || !entry.invoiceId) return;
-    const key = `pdf-${entry.invoiceId}`;
+    const key = `invoice-pdf-${entry.invoiceId}`;
     setActionKey(key);
     try {
       const response = await api.get<InvoicePdfData>(`/invoices/${entry.invoiceId}`);
@@ -506,7 +509,7 @@ export default function InvoicesPage() {
     );
     if (!confirmed) return;
 
-    setActionKey(`delete-${entry.invoiceId}`);
+    setActionKey(`invoice-void-${entry.invoiceId}`);
     try {
       await api.patch(`/invoices/${entry.invoiceId}/void`, { reason: 'Deleted from invoice register' });
       toast.success(`${entry.documentNo} deleted`);
@@ -514,6 +517,82 @@ export default function InvoicesPage() {
       await load(true);
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Invoice could not be deleted');
+    } finally {
+      setActionKey(null);
+    }
+  };
+
+  const handlePurchaseExport = async (entry: RegisterRow) => {
+    if (entry.kind !== 'PURCHASE' || !entry.purchaseId) return;
+    setActionKey(`purchase-pdf-${entry.purchaseId}`);
+    try {
+      const response = await api.get<PurchaseRecord>(`/purchases/${entry.purchaseId}`);
+      const purchase = response.data;
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 16;
+      const total = Number(purchase.purchaseAmount ?? 0);
+      const settled = Number(purchase.settledAmount ?? 0);
+      const lines = [
+        ['Vendor', purchase.vendor?.name ?? 'Vendor'],
+        ['Date', new Date(purchase.date).toLocaleDateString('en-PK')],
+        ['Weight', `${Number(purchase.weightKg ?? 0).toLocaleString('en-PK')} kg`],
+        ['Rate', fmt(purchase.ratePerKg ?? 0)],
+        ['Payment mode', purchase.paymentMode ?? '-'],
+        ['Status', purchase.paymentStatus ?? '-'],
+        ['Total', fmt(total)],
+        ['Paid', fmt(settled)],
+        ['Balance', fmt(total - settled)],
+      ];
+
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, pageWidth, 34, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('PURCHASE RECEIPT', margin, 17);
+      doc.setFontSize(9);
+      doc.text(purchase.purchaseNo, margin, 25);
+      doc.setTextColor(15, 23, 42);
+
+      let y = 50;
+      lines.forEach(([label, value], index) => {
+        doc.setFillColor(index % 2 === 0 ? 248 : 255, index % 2 === 0 ? 250 : 255, index % 2 === 0 ? 252 : 255);
+        doc.rect(margin, y - 6, pageWidth - margin * 2, 10, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(label, margin + 4, y);
+        doc.setFont('helvetica', 'normal');
+        doc.text(String(value), pageWidth - margin - 4, y, { align: 'right' });
+        y += 10;
+      });
+      drawVoiceplsPdfFooter(doc, pageWidth, pageHeight);
+      doc.save(`${purchase.purchaseNo.toLowerCase()}-receipt.pdf`);
+      toast.success(`${entry.documentNo} exported as PDF`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Purchase PDF export failed');
+    } finally {
+      setActionKey(null);
+    }
+  };
+
+  const handleVoidPurchase = async (entry: RegisterRow) => {
+    if (entry.kind !== 'PURCHASE' || !entry.purchaseId || user?.role !== 'ADMIN') return;
+    const confirmed = window.confirm(
+      `Void ${entry.documentNo}? This will reverse its stock, vendor ledger, and payment entries while preserving an audit record.`,
+    );
+    if (!confirmed) return;
+
+    setActionKey(`purchase-void-${entry.purchaseId}`);
+    try {
+      await api.patch(`/purchases/${entry.purchaseId}/void`, { reason: 'Voided from invoice register' });
+      toast.success(`${entry.documentNo} voided`);
+      notifyBusinessDataUpdated();
+      await load(true);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Purchase could not be voided');
     } finally {
       setActionKey(null);
     }
@@ -590,7 +669,7 @@ export default function InvoicesPage() {
           r.paymentStatus,
           r.paymentMode,
           r.settledAmount,
-          r.kind === 'SELLING' ? r.totalBalance : r.totalAmount,
+          r.totalAmount,
         );
         return (
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${meta.color} border`}>
@@ -617,8 +696,9 @@ export default function InvoicesPage() {
       align: 'right' as const,
       render: (r: RegisterRow) => {
         const viewHref = r.kind === 'SELLING' ? `/invoices/${r.invoiceId}` : `/purchases/${r.purchaseId}`;
-        const busy = r.invoiceId != null &&
-          (actionKey === `pdf-${r.invoiceId}` || actionKey === `delete-${r.invoiceId}`);
+        const busy = r.kind === 'SELLING'
+          ? actionKey === `invoice-pdf-${r.invoiceId}` || actionKey === `invoice-void-${r.invoiceId}`
+          : actionKey === `purchase-pdf-${r.purchaseId}` || actionKey === `purchase-void-${r.purchaseId}`;
         return (
           <div className="flex items-center justify-end gap-1">
             <Link href={viewHref} className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-emerald-50 hover:text-emerald-600" title={r.kind === 'SELLING' ? 'View invoice' : 'View purchase'}>
@@ -642,7 +722,7 @@ export default function InvoicesPage() {
                   disabled={busy}
                   onClick={() => void handleInvoiceExport(r)}
                 >
-                  {actionKey === `pdf-${r.invoiceId}` ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                  {actionKey === `invoice-pdf-${r.invoiceId}` ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
                 </button>
                 {user?.role === 'ADMIN' && (
                   <button
@@ -652,7 +732,31 @@ export default function InvoicesPage() {
                     disabled={busy}
                     onClick={() => void handleDeleteInvoice(r)}
                   >
-                    {actionKey === `delete-${r.invoiceId}` ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                    {actionKey === `invoice-void-${r.invoiceId}` ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                  </button>
+                )}
+              </>
+            )}
+            {r.kind === 'PURCHASE' && r.purchaseId && (
+              <>
+                <button
+                  type="button"
+                  className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-40"
+                  title="Export purchase PDF"
+                  disabled={busy}
+                  onClick={() => void handlePurchaseExport(r)}
+                >
+                  {actionKey === `purchase-pdf-${r.purchaseId}` ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                </button>
+                {user?.role === 'ADMIN' && (
+                  <button
+                    type="button"
+                    className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                    title="Void purchase"
+                    disabled={busy}
+                    onClick={() => void handleVoidPurchase(r)}
+                  >
+                    {actionKey === `purchase-void-${r.purchaseId}` ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />}
                   </button>
                 )}
               </>
