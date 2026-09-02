@@ -132,6 +132,45 @@ describe('InvoicesService rule-based pricing', () => {
     }, Role.DATA_ENTRY)).rejects.toThrow('Customer pricing rule is not configured');
   });
 
+  it('allows an administrator rate override when a customer has no pricing rule', async () => {
+    const tx = makeTransaction({
+      id: 8,
+      shopName: 'Unconfigured',
+      currentBalance: 0,
+      pricingBaseRateType: null,
+      pricingOffsetDirection: null,
+      pricingOffsetValue: null,
+    });
+    const marketRates = { getEffective: jest.fn() };
+    const service = new InvoicesService(tx as any, marketRates as any);
+
+    await service.create({
+      customerId: 8,
+      driverId: 4,
+      paymentMode: 'UDHAR',
+      manualRateOverride: true,
+      items: [{ quantityKg: 10, ratePerKg: 300 }],
+    }, Role.ADMIN);
+
+    expect(marketRates.getEffective).not.toHaveBeenCalled();
+    expect(tx.invoice.create).toHaveBeenCalled();
+  });
+
+  it('rejects zero or negative invoice weight before posting accounts', async () => {
+    const tx = makeTransaction(configuredCustomer);
+    const service = new InvoicesService(tx as any, {
+      getEffective: jest.fn().mockResolvedValue({ farmRate: 320, finalRate: 322 }),
+    } as any);
+
+    await expect(service.create({
+      customerId: 8,
+      driverId: 4,
+      paymentMode: 'UDHAR',
+      items: [{ quantityKg: 0 }],
+    }, Role.DATA_ENTRY)).rejects.toThrow('A valid invoice weight and rate are required');
+    expect(tx.invoice.create).not.toHaveBeenCalled();
+  });
+
   it('propagates the missing effective market-rate error', async () => {
     const tx = makeTransaction(configuredCustomer);
     const service = new InvoicesService(tx as any, {

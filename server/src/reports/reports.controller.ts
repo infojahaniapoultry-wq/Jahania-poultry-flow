@@ -19,24 +19,18 @@ export class ReportsController {
 
   @Roles(Role.ADMIN, Role.DATA_ENTRY)
   @Get('dashboard')
-  getDashboardSummary(@Query('date') date: string) {
-    return this.reportsService.getDashboardSummary(
-      date ?? new Date().toISOString().split('T')[0],
-    );
+  getDashboardSummary(@Query('date') date?: string) {
+    return this.reportsService.getDashboardSummary(date);
   }
 
   @Get('daily-pnl')
-  getDailyPnL(@Query('date') date: string) {
-    return this.reportsService.getDailyPnL(
-      date ?? new Date().toISOString().split('T')[0],
-    );
+  getDailyPnL(@Query('date') date?: string) {
+    return this.reportsService.getDailyPnL(date);
   }
 
   @Get('daily-performance')
-  getDailyPerformance(@Query('date') date: string) {
-    return this.reportsService.getDailyPerformance(
-      date ?? new Date().toISOString().split('T')[0],
-    );
+  getDailyPerformance(@Query('date') date?: string) {
+    return this.reportsService.getDailyPerformance(date);
   }
 
   @Roles(Role.ADMIN, Role.DATA_ENTRY)
@@ -47,12 +41,12 @@ export class ReportsController {
 
   @Get('customer-statement')
   getCustomerStatement(
-    @Query('customerId') customerId: string,
+    @Query('customerId', ParseIntPipe) customerId: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
     return this.reportsService.getCustomerStatement(
-      Number(customerId),
+      customerId,
       startDate,
       endDate,
     );
@@ -60,12 +54,12 @@ export class ReportsController {
 
   @Get('vendor-statement')
   getVendorStatement(
-    @Query('vendorId') vendorId: string,
+    @Query('vendorId', ParseIntPipe) vendorId: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
     return this.reportsService.getVendorStatement(
-      Number(vendorId),
+      vendorId,
       startDate,
       endDate,
     );

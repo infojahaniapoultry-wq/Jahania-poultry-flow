@@ -1120,7 +1120,7 @@ export default function ReportsPage() {
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b-2 border-slate-900 print:mb-10">
               <div className="space-y-1">
                 <div className="text-[10px] font-black uppercase tracking-[0.4em] text-emerald-600 leading-none">Jahania Poultry Service</div>
-                <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">{REPORT_TABS.find(t => t.id === report.kind)?.label}</h2>
+                <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">{report.kind === 'statement' ? report.title : REPORT_TABS.find(t => t.id === report.kind)?.label}</h2>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
                     <Calendar size={14} /> {report.kind === 'pnl' ? new Date(report.data.date).toLocaleDateString('en-PK') : report.periodLabel}

@@ -192,7 +192,7 @@ export class InvoicesService {
         }
 
         let calculatedRate: number | null = null;
-        if (this.marketRatesService) {
+        if (this.marketRatesService && !manualRateOverride) {
           if (
             !customer.pricingBaseRateType ||
             !customer.pricingOffsetDirection ||
@@ -229,9 +229,9 @@ export class InvoicesService {
           const ratePerKg = manualRateOverride
             ? toNumber(item.ratePerKg)
             : calculatedRate ?? toNumber(item.ratePerKg);
-          if (ratePerKg <= 0) {
+          if (netWeight <= 0 || ratePerKg <= 0) {
             throw new BadRequestException(
-              'A valid invoice rate is required for every item',
+              'A valid invoice weight and rate are required for every item',
             );
           }
           const amount = netWeight * ratePerKg;

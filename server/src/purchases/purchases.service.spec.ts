@@ -227,16 +227,7 @@ describe('PurchasesService cheque reuse', () => {
         }),
       }),
     );
-    expect(tx.vendorLedger.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          vendorId: 7,
-          type: 'CREDIT',
-          amount: 150000,
-          referenceType: 'PURCHASE_VOID_CASH',
-        }),
-      }),
-    );
+    expect(tx.vendorLedger.create).not.toHaveBeenCalled();
     expect(tx.purchaseEntry.delete).not.toHaveBeenCalled();
   });
 

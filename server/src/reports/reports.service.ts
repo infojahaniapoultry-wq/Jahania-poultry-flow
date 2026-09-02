@@ -181,8 +181,9 @@ function buildOptionalDateFilter(startDate?: string, endDate?: string) {
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  async getDailyPnL(date: string) {
-    const { start, end } = dayRange(date);
+  async getDailyPnL(date?: string) {
+    const effectiveDate = date ?? toPktDateKey(new Date());
+    const { start, end } = dayRange(effectiveDate);
 
     const [purchases, invoices, expenses] = await Promise.all([
       this.prisma.purchaseEntry.findMany({
@@ -197,14 +198,14 @@ export class ReportsService {
       }),
     ]);
 
-    return buildDailyPnL(date, { purchases, invoices, expenses });
+    return buildDailyPnL(effectiveDate, { purchases, invoices, expenses });
   }
 
   async getDashboardSummary(date?: string): Promise<DashboardSummary> {
-    const effectiveDate = date ?? new Date().toISOString().split('T')[0];
+    const effectiveDate = date ?? toPktDateKey(new Date());
     const weekDates = Array.from({ length: 7 }, (_, index) => {
-      const d = new Date(effectiveDate);
-      d.setDate(d.getDate() - (6 - index));
+      const d = new Date(`${effectiveDate}T00:00:00.000Z`);
+      d.setUTCDate(d.getUTCDate() - (6 - index));
       return d.toISOString().split('T')[0];
     });
     const weekStart = dayRange(weekDates[0]).start;
@@ -328,11 +329,11 @@ export class ReportsService {
     return getCurrentStockSummary(this.prisma);
   }
 
-  async getDailyPerformance(date: string) {
-    const { start, end } = dayRange(date);
-    const previousDay = new Date(start);
-    previousDay.setDate(previousDay.getDate() - 1);
-    const previousRange = dayRange(previousDay.toISOString());
+  async getDailyPerformance(date?: string) {
+    const effectiveDate = date ?? toPktDateKey(new Date());
+    const { start, end } = dayRange(effectiveDate);
+    const previousDay = new Date(start.getTime() - 24 * 60 * 60 * 1000);
+    const previousRange = dayRange(toPktDateKey(previousDay));
 
     const [
       invoices,
@@ -405,11 +406,11 @@ export class ReportsService {
     const lastSupply = previousInvoices[0] ?? null;
 
     return {
-      date,
+      date: effectiveDate,
       lastSupplyDate: lastSupply?.date ?? null,
       lastSupplyCustomer: lastSupply?.customer?.shopName ?? null,
       lastSupplyAmount: lastSupply ? toNumber(lastSupply.totalAmount) : 0,
-      currentSupplyDate: date,
+      currentSupplyDate: effectiveDate,
       currentSupplyAmount,
       currentRecoveryAmount,
       creditBalance: totalCreditBalance,

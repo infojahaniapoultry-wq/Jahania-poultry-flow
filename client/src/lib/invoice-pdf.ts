@@ -135,7 +135,14 @@ export async function exportInvoicePdf(invoice: InvoicePdfData) {
     y += 9;
   });
 
-  y += 12;
+  const summaryHeight = 42;
+  const footerTop = pageHeight - 36;
+  if (y + 12 + summaryHeight > footerTop) {
+    doc.addPage();
+    y = margin;
+  } else {
+    y += 12;
+  }
   const summaryX = pageWidth - margin - 78;
   doc.setDrawColor(226, 232, 240);
   doc.roundedRect(summaryX, y, 78, 42, 3, 3, 'S');
@@ -168,14 +175,21 @@ export async function exportInvoicePdf(invoice: InvoicePdfData) {
     doc.text(doc.splitTextToSize(`Notes: ${invoice.notes}`, 92), margin, y + 25);
   }
 
-  doc.setDrawColor(226, 232, 240);
-  doc.line(margin, pageHeight - 36, pageWidth - margin, pageHeight - 36);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor(100, 116, 139);
-  doc.text('System generated invoice — Jahania Poultry Service', margin, pageHeight - 29);
-  doc.text('AUTHORIZED SIGNATURE', pageWidth - margin, pageHeight - 29, { align: 'right' });
-  drawVoiceplsPdfFooter(doc, pageWidth, pageHeight);
+  const drawFooter = () => {
+    doc.setDrawColor(226, 232, 240);
+    doc.line(margin, pageHeight - 36, pageWidth - margin, pageHeight - 36);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text('System generated invoice — Jahania Poultry Service', margin, pageHeight - 29);
+    doc.text('AUTHORIZED SIGNATURE', pageWidth - margin, pageHeight - 29, { align: 'right' });
+    drawVoiceplsPdfFooter(doc, pageWidth, pageHeight);
+  };
+
+  for (let page = 1; page <= doc.getNumberOfPages(); page += 1) {
+    doc.setPage(page);
+    drawFooter();
+  }
 
   doc.save(`${invoice.invoiceNo.toLowerCase()}.pdf`);
 }

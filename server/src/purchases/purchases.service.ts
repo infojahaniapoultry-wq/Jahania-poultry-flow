@@ -404,20 +404,6 @@ export class PurchasesService {
         });
       }
 
-      // For CASH purchases, the settledAmount was deducted from vendor balance on creation.
-      // We must reverse it: post a CREDIT back to vendor to restore the balance.
-      if (purchase.paymentMode === PaymentMode.CASH && settledAmount > 0) {
-        await postVendorLedger(tx, {
-          vendorId: purchase.vendorId,
-          date: voidedAt,
-          type: LedgerEntryType.CREDIT,
-          amount: settledAmount,
-          narration: `Void purchase cash payment reversal #${id}`,
-          referenceId: purchase.id,
-          referenceType: 'PURCHASE_VOID_CASH',
-        });
-      }
-
       if (purchase.paymentMode === PaymentMode.CASH && settledAmount > 0) {
         await postCashBook(tx, {
           date: voidedAt,
@@ -559,6 +545,13 @@ export class PurchasesService {
 
   async remove(id: number) {
     const purchase = await this.findOne(id);
+    const settledAmount = Number(
+      (purchase as any).settledAmount ??
+        (purchase.paymentMode === PaymentMode.UDHAR
+          ? 0
+          : purchase.purchaseAmount),
+    );
+    const balanceDelta = Number(purchase.purchaseAmount) - settledAmount;
     return this.prisma.$transaction(async (tx) => {
       if (purchase.driverId && Number(purchase.driverCharge) > 0) {
         await postDriverLedger(tx, {
@@ -572,24 +565,25 @@ export class PurchasesService {
         });
       }
 
-      // Always reverse the vendor ledger regardless of payment mode.
-      // purchaseAmount was posted as CREDIT to vendor on creation;
-      // reverse by posting a DEBIT.
-      await postVendorLedger(tx, {
-        vendorId: purchase.vendorId,
-        date: new Date(),
-        type: LedgerEntryType.DEBIT,
-        amount: Number(purchase.purchaseAmount),
-        narration: `Reversal of Purchase #${id}`,
-        referenceId: id,
-        referenceType: 'PURCHASE_REVERSAL',
-      });
+      // Reverse only the unpaid vendor balance that was posted at creation.
+      if (balanceDelta !== 0) {
+        await postVendorLedger(tx, {
+          vendorId: purchase.vendorId,
+          date: new Date(),
+          type:
+            balanceDelta > 0 ? LedgerEntryType.DEBIT : LedgerEntryType.CREDIT,
+          amount: Math.abs(balanceDelta),
+          narration: `Reversal of Purchase #${id}`,
+          referenceId: id,
+          referenceType: 'PURCHASE_REVERSAL',
+        });
+      }
 
-      if (purchase.paymentMode === PaymentMode.CASH) {
+      if (purchase.paymentMode === PaymentMode.CASH && settledAmount > 0) {
         await postCashBook(tx, {
           date: new Date(),
           kind: CashBookType.RECEIPT,
-          amount: Number(purchase.purchaseAmount),
+          amount: settledAmount,
           narration: `Purchase reversal #${id}`,
           voucherRef: formatDocumentNo('PUR-REV', id),
           referenceId: id,

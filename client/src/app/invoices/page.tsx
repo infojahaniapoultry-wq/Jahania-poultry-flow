@@ -617,7 +617,8 @@ export default function InvoicesPage() {
       align: 'right' as const,
       render: (r: RegisterRow) => {
         const viewHref = r.kind === 'SELLING' ? `/invoices/${r.invoiceId}` : `/purchases/${r.purchaseId}`;
-        const busy = actionKey?.endsWith(String(r.invoiceId)) ?? false;
+        const busy = r.invoiceId != null &&
+          (actionKey === `pdf-${r.invoiceId}` || actionKey === `delete-${r.invoiceId}`);
         return (
           <div className="flex items-center justify-end gap-1">
             <Link href={viewHref} className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-emerald-50 hover:text-emerald-600" title={r.kind === 'SELLING' ? 'View invoice' : 'View purchase'}>

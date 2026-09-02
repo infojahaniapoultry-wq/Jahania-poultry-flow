@@ -1087,7 +1087,9 @@ export class PaymentsService {
             tx,
             'INVOICE',
             invoiceSource.id,
-            PaymentStatus.COMPLETED,
+            invoiceAmount - invoiceFinalSettled > 0
+              ? PaymentStatus.OUTSTANDING
+              : PaymentStatus.COMPLETED,
             cheque.chequeNo,
             null,
             invoiceFinalSettled,

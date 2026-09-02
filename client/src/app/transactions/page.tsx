@@ -132,8 +132,8 @@ export default function TransactionsPage() {
     try {
       const query = new URLSearchParams();
       if (filters.type) query.set('type', filters.type);
-      if (filters.startDate) query.set('startDate', new Date(filters.startDate).toISOString());
-      if (filters.endDate) query.set('endDate', new Date(filters.endDate).toISOString());
+      if (filters.startDate) query.set('startDate', new Date(`${filters.startDate}T00:00:00.000+05:00`).toISOString());
+      if (filters.endDate) query.set('endDate', new Date(`${filters.endDate}T23:59:59.999+05:00`).toISOString());
       const [txRes, customerRes, vendorRes, driverRes, accountRes] = await Promise.all([
         api.get(`/payments/transactions?${query.toString()}`),
         api.get('/customers'),
@@ -177,12 +177,12 @@ export default function TransactionsPage() {
     try {
       if (form.type === 'EXPENSE') {
         if (!form.expenseAccountId) { toast.error('Select account'); setSaving(false); return; }
-        await api.post('/expenses', { date: new Date(form.date).toISOString(), expenseAccountId: Number(form.expenseAccountId), amount: Number(form.amount), paymentMode: form.paymentMode, paymentProvider: form.paymentMode === 'ONLINE' ? form.paymentProvider : undefined, paymentReference: form.paymentMode === 'ONLINE' ? form.paymentReference : undefined, narration: form.narration || undefined, voucherRef: form.voucherRef || undefined });
+        await api.post('/expenses', { date: new Date(`${form.date}T12:00:00+05:00`).toISOString(), expenseAccountId: Number(form.expenseAccountId), amount: Number(form.amount), paymentMode: form.paymentMode, paymentProvider: form.paymentMode === 'ONLINE' ? form.paymentProvider : undefined, paymentReference: form.paymentMode === 'ONLINE' ? form.paymentReference : undefined, narration: form.narration || undefined, voucherRef: form.voucherRef || undefined });
       } else if (form.type === 'VOUCHER') {
-        await api.post('/vouchers', { type: form.voucherType, date: new Date(form.date).toISOString(), amount: Number(form.amount), paymentMode: form.paymentMode, paymentProvider: form.paymentMode === 'ONLINE' ? form.paymentProvider : undefined, paymentReference: form.paymentMode === 'ONLINE' ? form.paymentReference : undefined, customerId: form.customerId ? Number(form.customerId) : undefined, vendorId: form.vendorId ? Number(form.vendorId) : undefined, reference: form.reference || undefined, narration: form.narration || undefined });
+        await api.post('/vouchers', { type: form.voucherType, date: new Date(`${form.date}T12:00:00+05:00`).toISOString(), amount: Number(form.amount), paymentMode: form.paymentMode, paymentProvider: form.paymentMode === 'ONLINE' ? form.paymentProvider : undefined, paymentReference: form.paymentMode === 'ONLINE' ? form.paymentReference : undefined, customerId: form.customerId ? Number(form.customerId) : undefined, vendorId: form.vendorId ? Number(form.vendorId) : undefined, reference: form.reference || undefined, narration: form.narration || undefined });
       } else if (form.type === 'TRANSPORT') {
         if (!form.driverId) { toast.error('Select driver'); setSaving(false); return; }
-        await api.post('/transport/advances', { date: new Date(form.date).toISOString(), driverId: Number(form.driverId), amount: Number(form.amount), paymentMode: form.paymentMode, paymentProvider: form.paymentMode === 'ONLINE' ? form.paymentProvider : undefined, paymentReference: form.paymentMode === 'ONLINE' ? form.paymentReference : undefined, purpose: form.purpose || undefined, voucherRef: form.voucherRef || undefined });
+        await api.post('/transport/advances', { date: new Date(`${form.date}T12:00:00+05:00`).toISOString(), driverId: Number(form.driverId), amount: Number(form.amount), paymentMode: form.paymentMode, paymentProvider: form.paymentMode === 'ONLINE' ? form.paymentProvider : undefined, paymentReference: form.paymentMode === 'ONLINE' ? form.paymentReference : undefined, purpose: form.purpose || undefined, voucherRef: form.voucherRef || undefined });
       }
       toast.success('Ledger updated');
       setOpen(false);
