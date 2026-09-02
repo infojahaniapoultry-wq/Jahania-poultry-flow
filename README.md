@@ -14,7 +14,7 @@ A full-stack business management system built for **Jahania Poultry Service** to
 | **Deployment** | Vercel (backend & frontend) |
 ---
 
-## 📁 Project Structure
+## 📁 Project Structure.
 
 ```
 Poultry-Business-Management-System/
