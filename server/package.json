@@ -22,7 +22,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
+    "seed": "ts-node -r dotenv/config -r tsconfig-paths/register prisma/seed.ts",
     "backfill:paid-invoice-ledgers": "ts-node -r tsconfig-paths/register scripts/backfill-paid-invoice-ledgers.ts",
     "vercel-build": "prisma generate && nest build"
   },
