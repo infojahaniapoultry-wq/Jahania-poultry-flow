@@ -15,6 +15,8 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.5",
+    "@supabase/supabase-js": "^2.109.0",
     "@types/react-datepicker": "^6.2.0",
     "axios": "^1.16.0",
     "date-fns": "^4.1.0",
