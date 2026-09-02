@@ -1,14 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Smartphone, Landmark, CreditCard, Search, Clock } from 'lucide-react';
+import { RefreshCw, Smartphone, Landmark, CreditCard, Search, Clock, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import AppLayout from '@/components/AppLayout';
 import DataTable from '@/components/DataTable';
 import DatePicker from '@/components/DatePicker';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
-import { BUSINESS_DATA_UPDATED_EVENT } from '@/lib/business-events';
+import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
 import { getCachedPageData, setCachedPageData } from '@/lib/page-cache';
+import { useAuth } from '@/lib/auth';
 import {
   fmt,
   OnlineProvider,
@@ -42,7 +43,9 @@ function getOnlineOrigin(row: OnlineRow) {
 }
 
 export default function FinanceOnlinePage() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [rows, setRows] = useState<OnlineRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<{ provider: OnlineFilterProvider; sourceType: OnlineSourceFilter; startDate: string; endDate: string; }>({ provider: '', sourceType: '', startDate: '', endDate: '' });
@@ -66,8 +69,8 @@ export default function FinanceOnlinePage() {
       const query = new URLSearchParams();
       if (filters.provider) query.set('provider', filters.provider);
       if (filters.sourceType) query.set('sourceType', filters.sourceType);
-      if (filters.startDate) query.set('startDate', new Date(filters.startDate).toISOString());
-      if (filters.endDate) query.set('endDate', new Date(filters.endDate).toISOString());
+      if (filters.startDate) query.set('startDate', `${filters.startDate}T00:00:00.000+05:00`);
+      if (filters.endDate) query.set('endDate', `${filters.endDate}T23:59:59.999+05:00`);
       const res = await api.get(`/payments/online?${query.toString()}`);
       const data = res.data as OnlineRow[];
       setRows(data);
@@ -97,11 +100,31 @@ export default function FinanceOnlinePage() {
 
   const summary = useMemo(() => {
     return visibleRows.reduce((acc, r) => {
-      acc.count++;
-      acc.val += Number(r.amount);
+      if (r.status === 'PENDING') {
+        acc.count++;
+        acc.val += Number(r.amount);
+      }
       return acc;
     }, { count: 0, val: 0 });
   }, [visibleRows]);
+
+  const updateStatus = async (row: OnlineRow, status: 'COMPLETED' | 'FAILED') => {
+    if (user?.role !== 'ADMIN' || row.status !== 'PENDING') return;
+    const actionLabel = status === 'COMPLETED' ? 'clear' : 'mark as failed';
+    if (!window.confirm(`Confirm ${actionLabel} for ${fmt(row.amount)} (${row.referenceNo || 'no reference'})?`)) return;
+
+    setUpdatingId(row.id);
+    try {
+      await api.patch(`/payments/online/${row.id}/status`, { status });
+      toast.success(status === 'COMPLETED' ? 'Online payment cleared' : 'Online payment marked as failed');
+      notifyBusinessDataUpdated();
+      await load(true);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Online payment status could not be updated');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   const columns = [
     {
@@ -134,22 +157,59 @@ export default function FinanceOnlinePage() {
     { key: 'amount', label: 'Net Value', align: 'right' as const, render: (r: OnlineRow) => <span className="text-sm font-black text-slate-900">{fmt(r.amount)}</span> },
     {
       key: 'status',
-      label: 'Recorded',
-      render: () => (
-        <div className="flex flex-col">
-          <span className="inline-flex w-fit px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-50">Recorded</span>
-          <span className="text-[9px] font-medium text-slate-300 mt-0.5">Payment record saved</span>
-        </div>
-      ),
+      label: 'Status',
+      render: (r: OnlineRow) => {
+        const status = (r.status || 'PENDING').toUpperCase();
+        const isPending = status === 'PENDING';
+        const isBusy = updatingId === r.id;
+        const meta = status === 'COMPLETED'
+          ? { label: 'Cleared', className: 'text-emerald-700 bg-emerald-50', note: 'Funds posted to ledger' }
+          : status === 'FAILED'
+            ? { label: 'Failed', className: 'text-red-700 bg-red-50', note: 'Source balance reopened' }
+            : { label: 'Pending', className: 'text-amber-700 bg-amber-50', note: 'Awaiting transfer confirmation' };
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col">
+              <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${meta.className}`}>{meta.label}</span>
+              <span className="mt-0.5 text-[9px] font-medium text-slate-400">{meta.note}</span>
+            </div>
+            {isPending && user?.role === 'ADMIN' && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => void updateStatus(r, 'COMPLETED')}
+                  title="Confirm funds received or sent"
+                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isBusy ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => void updateStatus(r, 'FAILED')}
+                  title="Mark transfer as failed and reopen the balance"
+                  className="rounded-lg p-1 text-red-500 transition hover:bg-red-50 disabled:opacity-50"
+                >
+                  <XCircle size={15} />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      },
     },
   ];
+
+  const pendingLabel = summary.count === 1 ? 'TRANSFER' : 'TRANSFERS';
 
   return (
     <AppLayout>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Digital Clearing</h1>
-          <p className="text-slate-500 font-medium tracking-tight">Review recorded JazzCash, Easypaisa, NayaPay and bank transfers after payment.</p>
+          <p className="text-slate-500 font-medium tracking-tight">Confirm online transfers after you verify the money has arrived or been sent.</p>
         </div>
         <div className="flex items-center gap-3 self-start">
            <button onClick={() => load(true)} className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-2xl transition-all active:scale-95">
@@ -163,7 +223,7 @@ export default function FinanceOnlinePage() {
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 rounded-full -mr-10 -mt-10 blur-2xl transition-transform" />
           <div className="relative z-10 flex flex-col h-full">
             <div className="flex items-center gap-2 text-emerald-100/80 text-[10px] font-black uppercase tracking-widest mb-4">
-              <Clock size={14} /> Digital Funds Clearing
+              <Clock size={14} /> Pending Digital Funds
             </div>
             <div className="text-3xl font-black text-white mt-auto">{fmt(summary.val)}</div>
           </div>
@@ -171,8 +231,8 @@ export default function FinanceOnlinePage() {
         
         <div className="bg-white border-2 border-slate-900 rounded-[32px] p-6 shadow-sm relative overflow-hidden">
            <div className="relative z-10 flex flex-col h-full justify-center">
-            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Recorded Transfers</div>
-             <div className="text-4xl font-black text-slate-900 leading-none">{summary.count} <span className="text-xs text-slate-300 tracking-widest">TRANSFERS</span></div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Awaiting Confirmation</div>
+             <div className="text-4xl font-black text-slate-900 leading-none">{summary.count} <span className="text-xs text-slate-300 tracking-widest">{pendingLabel}</span></div>
            </div>
         </div>
       </div>
