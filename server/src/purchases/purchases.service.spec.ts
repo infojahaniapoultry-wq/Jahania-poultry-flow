@@ -365,4 +365,65 @@ describe('PurchasesService cheque reuse', () => {
       }),
     );
   });
+
+  it('updates a purchase and posts only the change in unpaid vendor balance', async () => {
+    const existingPurchase = {
+      id: 11,
+      vendorId: 7,
+      driverId: null,
+      date: new Date('2026-09-02T07:00:00.000Z'),
+      weightKg: 100,
+      ratePerKg: 10,
+      purchaseAmount: 1000,
+      settledAmount: 600,
+      paymentMode: 'CASH',
+      paymentStatus: 'OUTSTANDING',
+      notes: 'Original note',
+      isVoided: false,
+      chequeLog: null,
+      onlinePaymentLog: null,
+    };
+    const tx = {
+      vendor: {
+        findUnique: jest.fn().mockResolvedValue({ openingBalance: 0, currentBalance: 400 }),
+        update: jest.fn(),
+      },
+      purchaseEntry: {
+        findUnique: jest.fn().mockResolvedValue(existingPurchase),
+        update: jest.fn().mockResolvedValue(existingPurchase),
+      },
+      vendorLedger: {
+        updateMany: jest.fn(),
+        create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+      },
+      driverLedger: { updateMany: jest.fn() },
+      cashBook: {
+        updateMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+      },
+      $transaction: jest.fn(async (fn) => fn(tx)),
+    };
+    const service = new PurchasesService(tx);
+
+    await service.update(11, { weightKg: 100, ratePerKg: 12, notes: 'Corrected rate' });
+
+    expect(tx.purchaseEntry.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 11 },
+        data: expect.objectContaining({ purchaseAmount: 1200, paymentStatus: 'OUTSTANDING' }),
+      }),
+    );
+    expect(tx.vendorLedger.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          amount: 200,
+          type: 'CREDIT',
+          referenceType: 'PURCHASE_ADJUSTMENT',
+        }),
+      }),
+    );
+  });
 });

@@ -11,7 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PurchasesService } from './purchases.service';
-import { CreatePurchaseDto } from './purchases.dto';
+import { CreatePurchaseDto, UpdatePurchaseDto } from './purchases.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -36,6 +36,15 @@ export class PurchasesController {
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.purchasesService.findOne(id);
+  }
+
+  @Patch(':id')
+  @Roles(Role.ADMIN)
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePurchaseDto,
+  ) {
+    return this.purchasesService.update(id, dto);
   }
 
   @Delete(':id')

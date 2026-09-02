@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreatePurchaseDto } from './purchases.dto';
+import { CreatePurchaseDto, UpdatePurchaseDto } from './purchases.dto';
 import {
   CashBookType,
   ChequeStatus,
@@ -25,6 +25,53 @@ import {
   toNumber,
 } from '../shared/ledger-posting';
 import { formatDocumentNo } from '../shared/document-number';
+
+async function rebuildVendorBalance(tx: any, vendorId: number) {
+  const vendor = await tx.vendor.findUnique({
+    where: { id: vendorId },
+    select: { openingBalance: true },
+  });
+  let runningBalance = toNumber(vendor?.openingBalance);
+  const rows = await tx.vendorLedger.findMany({
+    where: { vendorId },
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+  });
+
+  for (const row of rows) {
+    const amount = toNumber(row.amount);
+    runningBalance =
+      row.type === LedgerEntryType.CREDIT
+        ? runningBalance + amount
+        : runningBalance - amount;
+    await tx.vendorLedger.update({
+      where: { id: row.id },
+      data: { runningBalance },
+    });
+  }
+
+  await tx.vendor.update({
+    where: { id: vendorId },
+    data: { currentBalance: runningBalance },
+  });
+}
+
+async function rebuildCashBook(tx: any) {
+  const rows = await tx.cashBook.findMany({
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+  });
+  let runningBalance = 0;
+  for (const row of rows) {
+    const amount = toNumber(row.amount);
+    runningBalance =
+      row.type === CashBookType.RECEIPT
+        ? runningBalance + amount
+        : runningBalance - amount;
+    await tx.cashBook.update({
+      where: { id: row.id },
+      data: { runningBalance },
+    });
+  }
+}
 
 @Injectable()
 export class PurchasesService {
@@ -541,6 +588,115 @@ export class PurchasesService {
     });
     if (!purchase) throw new NotFoundException(`Purchase #${id} not found`);
     return this.attachPurchaseNo(purchase);
+  }
+
+  async update(id: number, dto: UpdatePurchaseDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.purchaseEntry.findUnique({
+        where: { id },
+        include: { chequeLog: true, onlinePaymentLog: true },
+      });
+      if (!existing) throw new NotFoundException(`Purchase #${id} not found`);
+      if (existing.isVoided) {
+        throw new BadRequestException('Voided purchases cannot be edited');
+      }
+      if (existing.chequeLog && existing.chequeLog.status !== ChequeStatus.PENDING) {
+        throw new BadRequestException(
+          'Processed or bounced cheque purchases cannot be edited',
+        );
+      }
+      if (
+        existing.onlinePaymentLog &&
+        existing.onlinePaymentLog.status !== PaymentStatus.PENDING
+      ) {
+        throw new BadRequestException(
+          'Processed online-payment purchases cannot be edited',
+        );
+      }
+
+      const weightKg =
+        dto.weightKg === undefined ? toNumber(existing.weightKg) : toNumber(dto.weightKg);
+      const ratePerKg =
+        dto.ratePerKg === undefined ? toNumber(existing.ratePerKg) : toNumber(dto.ratePerKg);
+      if (weightKg <= 0 || ratePerKg <= 0) {
+        throw new BadRequestException('Purchase weight and rate must be greater than zero');
+      }
+
+      const purchaseDate = dto.date ? normalizeDate(dto.date) : existing.date;
+      const purchaseAmount = weightKg * ratePerKg;
+      const settledAmount = toNumber(existing.settledAmount);
+      if (settledAmount > purchaseAmount) {
+        throw new BadRequestException(
+          'The updated purchase total cannot be lower than the amount already paid',
+        );
+      }
+
+      const oldOutstanding = toNumber(existing.purchaseAmount) - settledAmount;
+      const newOutstanding = purchaseAmount - settledAmount;
+      const paymentStatus =
+        existing.paymentMode === PaymentMode.CASH
+          ? newOutstanding > 0
+            ? PaymentStatus.OUTSTANDING
+            : PaymentStatus.COMPLETED
+          : existing.paymentMode === PaymentMode.UDHAR
+            ? PaymentStatus.OUTSTANDING
+            : PaymentStatus.PENDING;
+      const narration = dto.notes ?? existing.notes ?? `Purchase #${id}`;
+
+      await tx.purchaseEntry.update({
+        where: { id },
+        data: {
+          date: purchaseDate,
+          weightKg,
+          ratePerKg,
+          purchaseAmount,
+          paymentStatus,
+          notes: dto.notes ?? existing.notes,
+        },
+      });
+
+      await tx.vendorLedger.updateMany({
+        where: { vendorId: existing.vendorId, referenceId: id, referenceType: 'PURCHASE' },
+        data: { date: purchaseDate, narration },
+      });
+      const outstandingAdjustment = newOutstanding - oldOutstanding;
+      if (outstandingAdjustment !== 0) {
+        await postVendorLedger(tx, {
+          vendorId: existing.vendorId,
+          date: purchaseDate,
+          type:
+            outstandingAdjustment > 0
+              ? LedgerEntryType.CREDIT
+              : LedgerEntryType.DEBIT,
+          amount: Math.abs(outstandingAdjustment),
+          narration: `Purchase adjustment #${id}`,
+          referenceId: id,
+          referenceType: 'PURCHASE_ADJUSTMENT',
+        });
+      }
+
+      await tx.driverLedger.updateMany({
+        where: { driverId: existing.driverId ?? undefined, referenceId: id, referenceType: 'PURCHASE_DRIVER_CHARGE' },
+        data: { date: purchaseDate, narration },
+      });
+      if (existing.paymentMode === PaymentMode.CASH) {
+        await tx.cashBook.updateMany({
+          where: { referenceId: id, referenceType: 'PURCHASE' },
+          data: { date: purchaseDate, narration },
+        });
+      }
+
+      await rebuildVendorBalance(tx, existing.vendorId);
+      if (existing.paymentMode === PaymentMode.CASH) {
+        await rebuildCashBook(tx);
+      }
+
+      const updated = await tx.purchaseEntry.findUnique({
+        where: { id },
+        include: { vendor: true, driver: true, chequeLog: true, onlinePaymentLog: true },
+      });
+      return this.attachPurchaseNo(updated);
+    }, this.transactionOptions);
   }
 
   async remove(id: number) {

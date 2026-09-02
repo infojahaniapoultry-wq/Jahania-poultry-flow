@@ -90,6 +90,13 @@ export class UpdatePurchaseDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  @Min(0)
+  weightKg?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   ratePerKg?: number;
 
   @IsOptional()

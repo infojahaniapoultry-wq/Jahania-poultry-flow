@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import DataTable from '@/components/DataTable';
+import Modal from '@/components/Modal';
 import SalesInvoiceModal from '@/components/SalesInvoiceModal';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { toast } from 'react-hot-toast';
-import { Ban, Download, Eye, FileText, Pencil, RefreshCw, Trash2, Truck, Loader2 } from 'lucide-react';
+import { Download, Eye, FileText, Pencil, RefreshCw, Trash2, Truck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import DatePicker from '@/components/DatePicker';
 import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
@@ -85,7 +86,17 @@ interface PurchaseRecord {
     referenceNo?: string;
     status?: string;
   } | null;
+  notes?: string | null;
 }
+
+type PurchaseEditForm = {
+  id: number;
+  documentNo: string;
+  date: string;
+  weightKg: string;
+  ratePerKg: string;
+  notes: string;
+};
 
 type RegisterKind = 'SELLING' | 'PURCHASE';
 type RegisterView = 'ALL' | 'CUSTOMER' | 'VENDOR';
@@ -135,6 +146,8 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | undefined>();
+  const [editingPurchase, setEditingPurchase] = useState<PurchaseEditForm | null>(null);
+  const [savingPurchaseEdit, setSavingPurchaseEdit] = useState(false);
   const [actionKey, setActionKey] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [filterDate, setFilterDate] = useState('');
@@ -598,6 +611,55 @@ export default function InvoicesPage() {
     }
   };
 
+  const handleOpenPurchaseEdit = async (entry: RegisterRow) => {
+    if (entry.kind !== 'PURCHASE' || !entry.purchaseId || user?.role !== 'ADMIN') return;
+    setActionKey(`purchase-load-${entry.purchaseId}`);
+    try {
+      const response = await api.get<PurchaseRecord>(`/purchases/${entry.purchaseId}`);
+      const purchase = response.data;
+      setEditingPurchase({
+        id: purchase.id,
+        documentNo: purchase.purchaseNo,
+        date: purchase.date.slice(0, 10),
+        weightKg: String(purchase.weightKg ?? ''),
+        ratePerKg: String(purchase.ratePerKg ?? ''),
+        notes: purchase.notes ?? '',
+      });
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Purchase could not be loaded');
+    } finally {
+      setActionKey(null);
+    }
+  };
+
+  const handleSavePurchaseEdit = async () => {
+    if (!editingPurchase) return;
+    const weightKg = Number(editingPurchase.weightKg);
+    const ratePerKg = Number(editingPurchase.ratePerKg);
+    if (weightKg <= 0 || ratePerKg <= 0) {
+      toast.error('Purchase weight and rate must be greater than zero');
+      return;
+    }
+
+    setSavingPurchaseEdit(true);
+    try {
+      await api.patch(`/purchases/${editingPurchase.id}`, {
+        date: `${editingPurchase.date}T12:00:00+05:00`,
+        weightKg,
+        ratePerKg,
+        notes: editingPurchase.notes.trim() || undefined,
+      });
+      toast.success(`${editingPurchase.documentNo} updated`);
+      setEditingPurchase(null);
+      notifyBusinessDataUpdated();
+      await load(true);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Purchase could not be updated');
+    } finally {
+      setSavingPurchaseEdit(false);
+    }
+  };
+
   const columns = [
     {
       key: 'documentNo',
@@ -698,7 +760,7 @@ export default function InvoicesPage() {
         const viewHref = r.kind === 'SELLING' ? `/invoices/${r.invoiceId}` : `/purchases/${r.purchaseId}`;
         const busy = r.kind === 'SELLING'
           ? actionKey === `invoice-pdf-${r.invoiceId}` || actionKey === `invoice-void-${r.invoiceId}`
-          : actionKey === `purchase-pdf-${r.purchaseId}` || actionKey === `purchase-void-${r.purchaseId}`;
+          : actionKey === `purchase-load-${r.purchaseId}` || actionKey === `purchase-pdf-${r.purchaseId}` || actionKey === `purchase-void-${r.purchaseId}`;
         return (
           <div className="flex items-center justify-end gap-1">
             <Link href={viewHref} className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-emerald-50 hover:text-emerald-600" title={r.kind === 'SELLING' ? 'View invoice' : 'View purchase'}>
@@ -739,6 +801,17 @@ export default function InvoicesPage() {
             )}
             {r.kind === 'PURCHASE' && r.purchaseId && (
               <>
+                {user?.role === 'ADMIN' && (
+                  <button
+                    type="button"
+                    className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
+                    title="Edit purchase"
+                    disabled={busy}
+                    onClick={() => void handleOpenPurchaseEdit(r)}
+                  >
+                    {actionKey === `purchase-load-${r.purchaseId}` ? <Loader2 size={16} className="animate-spin" /> : <Pencil size={16} />}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-40"
@@ -752,11 +825,11 @@ export default function InvoicesPage() {
                   <button
                     type="button"
                     className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
-                    title="Void purchase"
+                    title="Delete purchase"
                     disabled={busy}
                     onClick={() => void handleVoidPurchase(r)}
                   >
-                    {actionKey === `purchase-void-${r.purchaseId}` ? <Loader2 size={16} className="animate-spin" /> : <Ban size={16} />}
+                    {actionKey === `purchase-void-${r.purchaseId}` ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                   </button>
                 )}
               </>
@@ -854,6 +927,81 @@ export default function InvoicesPage() {
         onClose={() => { setOpen(false); setEditingInvoiceId(undefined); }}
         onCreated={() => load(true)}
       />
+
+      <Modal
+        open={editingPurchase !== null}
+        onClose={() => { if (!savingPurchaseEdit) setEditingPurchase(null); }}
+        title={editingPurchase ? `Edit ${editingPurchase.documentNo}` : 'Edit purchase'}
+        size="md"
+        footer={(
+          <>
+            <button
+              type="button"
+              className="px-5 py-2 text-sm font-bold text-slate-500 hover:text-slate-700"
+              disabled={savingPurchaseEdit}
+              onClick={() => setEditingPurchase(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2 text-sm font-bold text-white shadow-lg shadow-emerald-100 transition-all hover:bg-emerald-700 disabled:opacity-50"
+              disabled={savingPurchaseEdit}
+              onClick={() => void handleSavePurchaseEdit()}
+            >
+              {savingPurchaseEdit && <Loader2 size={16} className="animate-spin" />}
+              Save changes
+            </button>
+          </>
+        )}
+      >
+        {editingPurchase && (
+          <div className="space-y-5">
+            <p className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800">
+              The vendor, driver, payment mode, and settled amount are locked after posting. This protects your payment and ledger history.
+            </p>
+            <label className="block space-y-2">
+              <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Purchase date</span>
+              <DatePicker
+                value={editingPurchase.date}
+                onChange={(date) => setEditingPurchase((current) => current ? { ...current, date } : current)}
+                className="!py-2.5 text-sm font-bold"
+              />
+            </label>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Net weight (kg)</span>
+                <input
+                  type="number"
+                  min="0.001"
+                  value={editingPurchase.weightKg}
+                  onChange={(event) => setEditingPurchase((current) => current ? { ...current, weightKg: event.target.value } : current)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-emerald-500 focus:bg-white"
+                />
+              </label>
+              <label className="block space-y-2">
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Rate / kg</span>
+                <input
+                  type="number"
+                  min="0.01"
+                  value={editingPurchase.ratePerKg}
+                  onChange={(event) => setEditingPurchase((current) => current ? { ...current, ratePerKg: event.target.value } : current)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold outline-none focus:border-emerald-500 focus:bg-white"
+                />
+              </label>
+            </div>
+            <label className="block space-y-2">
+              <span className="text-[11px] font-black uppercase tracking-widest text-slate-400">Notes</span>
+              <textarea
+                value={editingPurchase.notes}
+                onChange={(event) => setEditingPurchase((current) => current ? { ...current, notes: event.target.value } : current)}
+                className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none focus:border-emerald-500 focus:bg-white"
+                placeholder="Optional purchase notes"
+              />
+            </label>
+          </div>
+        )}
+      </Modal>
     </AppLayout>
   );
 }
