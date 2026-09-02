@@ -252,6 +252,7 @@ export default function CustomersPage() {
         shopName: form.shopName,
         contact: toOptionalPhoneNumber(form.contact),
         address: form.address || undefined,
+        openingBalance: Number(form.openingBalance),
         pricingBaseRateType: form.pricingBaseRateType,
         pricingOffsetDirection: form.pricingOffsetDirection,
         pricingOffsetValue: Number(form.pricingOffsetValue),
@@ -504,9 +505,9 @@ export default function CustomersPage() {
             className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:bg-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all disabled:opacity-50" 
             value={form.openingBalance} 
             onChange={e => setForm(f => ({ ...f, openingBalance: e.target.value }))} 
-            disabled={!!editCustomer} 
           />
         </div>
+        {editCustomer && <div className="mt-1 text-[10px] font-medium text-amber-600">Changing this corrects the current outstanding balance; existing ledger history stays unchanged.</div>}
       </div>
       <div className="sm:col-span-2">
         <label className="text-[11px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-1.5 block">Office / Shop Address</label>

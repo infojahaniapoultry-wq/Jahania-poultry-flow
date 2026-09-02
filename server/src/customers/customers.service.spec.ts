@@ -32,6 +32,33 @@ describe('CustomersService ledger statement', () => {
     expect(tx.customer.update).not.toHaveBeenCalled();
   });
 
+  it('keeps the current receivable aligned when the opening balance is corrected', async () => {
+    const tx = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 8,
+          openingBalance: 200,
+          currentBalance: 650,
+          pricingBaseRateType: null,
+          pricingOffsetDirection: null,
+          pricingOffsetValue: null,
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const service = new CustomersService(tx as any);
+
+    await service.update(8, { openingBalance: 300 });
+
+    expect(tx.customer.update).toHaveBeenCalledWith({
+      where: { id: 8 },
+      data: expect.objectContaining({
+        openingBalance: 300,
+        currentBalance: 750,
+      }),
+    });
+  });
+
   it('replays the customer ledger as the source of truth', async () => {
     const tx = {
       customer: {

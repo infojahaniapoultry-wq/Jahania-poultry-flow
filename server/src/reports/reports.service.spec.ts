@@ -164,6 +164,52 @@ describe('ReportsService dashboard summary', () => {
     expect(result.closingBalance).toBe(100);
   });
 
+  it('carries the customer balance forward into a date-range statement', async () => {
+    const prisma = {
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 4,
+          shopName: 'A-1 Traders',
+          openingBalance: 100,
+        }),
+      },
+      customerLedger: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 1,
+            date: new Date('2026-05-01T00:00:00.000Z'),
+            createdAt: new Date('2026-05-01T00:00:00.000Z'),
+            amount: 50,
+            type: 'DEBIT',
+            narration: 'Previous invoice',
+            referenceType: null,
+            referenceId: null,
+          },
+          {
+            id: 2,
+            date: new Date('2026-05-02T00:00:00.000Z'),
+            createdAt: new Date('2026-05-02T00:00:00.000Z'),
+            amount: 20,
+            type: 'CREDIT',
+            narration: 'Cash received',
+            referenceType: null,
+            referenceId: null,
+          },
+        ]),
+      },
+    };
+    const service = new ReportsService(prisma as any);
+
+    const result = await service.getCustomerStatement(4, '2026-05-02');
+
+    expect(result.openingBalance).toBe(150);
+    expect(result.closingBalance).toBe(130);
+    expect(result.ledger).toHaveLength(1);
+    expect(result.ledger[0]).toEqual(
+      expect.objectContaining({ narration: 'Cash received', runningBalance: 130 }),
+    );
+  });
+
   it('shows one cash invoice row instead of debit plus payment rows', async () => {
     const prisma = {
       customer: {

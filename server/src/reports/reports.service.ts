@@ -446,10 +446,16 @@ export class ReportsService {
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
     });
+    // Replay the statement from its original opening balance through the end
+    // of the requested period. Filtering before the replay would make a
+    // date-range report lose the balance brought forward into that period.
+    const statementEndFilter = endDate
+      ? buildOptionalDateFilter(undefined, endDate)
+      : {};
     const ledgerRows = await this.prisma.customerLedger.findMany({
       where: {
         customerId,
-        ...buildOptionalDateFilter(startDate, endDate),
+        ...statementEndFilter,
       },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     });
@@ -599,11 +605,19 @@ export class ReportsService {
       },
     );
 
+    const statementStart = startDate ? dayRange(startDate).start : null;
+    const visibleLedger = statementStart
+      ? ledger.filter((row) => row.date >= statementStart)
+      : ledger;
+    const periodOpeningBalance = statementStart
+      ? [...ledger].reverse().find((row) => row.date < statementStart)?.runningBalance ?? openingBalance
+      : openingBalance;
+
     return {
       customer,
-      openingBalance,
-      closingBalance: ledger.at(-1)?.runningBalance ?? openingBalance,
-      ledger,
+      openingBalance: periodOpeningBalance,
+      closingBalance: visibleLedger.at(-1)?.runningBalance ?? periodOpeningBalance,
+      ledger: visibleLedger,
     };
   }
 

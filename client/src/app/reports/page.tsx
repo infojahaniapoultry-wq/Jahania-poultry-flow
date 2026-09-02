@@ -92,6 +92,7 @@ type ReportState =
       address?: string | null;
       rows: LedgerRow[];
       periodLabel: string;
+      openingBalance: number;
       endingBalance: number;
     }
   | {
@@ -119,7 +120,7 @@ type ReportState =
 type CustomerOption = { id: number; shopName: string };
 type VendorOption = { id: number; name: string };
 
-const REPORT_CACHE_STORAGE_KEY = 'poultryflow:reports-cache:v4';
+const REPORT_CACHE_STORAGE_KEY = 'poultryflow:reports-cache:v5';
 
 const REPORT_TABS: Array<{
   id: ReportTab;
@@ -701,6 +702,7 @@ async function exportReportPdf(
 
   if (report.kind === 'statement') {
     coverBottom = drawMetricCards(doc, [
+      { label: 'Opening Balance', value: formatCurrency(report.openingBalance), color: colors.amber, sub: 'Brought forward' },
       { label: 'Total Transactions', value: String(report.rows.length), color: colors.sky, sub: 'In the given period' },
       { label: 'Closing Balance', value: formatCurrency(report.endingBalance), color: report.endingBalance > 0 ? colors.red : colors.green, sub: 'Current outstanding' },
     ], coverBottom);
@@ -708,7 +710,8 @@ async function exportReportPdf(
       { label: 'Name', value: report.subjectName },
       { label: 'Contact', value: report.contact || 'N/A' },
       { label: 'Address', value: report.address || 'N/A' },
-      { label: 'Balance', value: formatCurrency(report.endingBalance) },
+      { label: 'Opening Balance', value: formatCurrency(report.openingBalance) },
+      { label: 'Closing Balance', value: formatCurrency(report.endingBalance) },
     ], colors.green);
   }
 
@@ -915,12 +918,14 @@ export default function ReportsPage() {
           case 'pnl': writeReport({ kind: 'pnl', data: { date: String(payload.date ?? filters.date), purchaseWt: Number(payload.purchaseWt ?? payload.purchasedWeight ?? 0), soldWt: Number(payload.soldWt ?? payload.soldWeight ?? 0), purchaseAmt: Number(payload.purchaseAmt ?? payload.purchaseAmount ?? 0), salesAmt: Number(payload.salesAmt ?? payload.salesAmount ?? 0), grossProfit: Number(payload.grossProfit ?? 0), totalExpenses: Number(payload.totalExpenses ?? 0), dailyProfit: Number(payload.dailyProfit ?? payload.netProfit ?? 0), remainShort: Number(payload.remainShort ?? 0), purchaseCount: Number(payload.purchaseCount ?? 0), invoiceCount: Number(payload.invoiceCount ?? 0) } }); break;
           case 'customer': {
             const rows = (payload.ledger || []).map((row: any) => ({ date: row.date, narration: row.narration, type: row.type, amount: Number(row.amount), runningBalance: Number(row.runningBalance), weightKg: row.weightKg == null ? null : Number(row.weightKg), ratePerKg: row.ratePerKg == null ? null : Number(row.ratePerKg), rateCount: Number(row.rateCount ?? 0) }));
-            writeReport({ kind: 'statement', title: 'Customer Statement', subjectLabel: 'Customer', subjectName: payload.customer?.shopName ?? 'Customer', contact: payload.customer?.contact, address: payload.customer?.address, rows, periodLabel: 'All Time', endingBalance: rows[rows.length - 1]?.runningBalance ?? 0 });
+            const openingBalance = Number(payload.openingBalance ?? 0);
+            writeReport({ kind: 'statement', title: 'Customer Statement', subjectLabel: 'Customer', subjectName: payload.customer?.shopName ?? 'Customer', contact: payload.customer?.contact, address: payload.customer?.address, rows, periodLabel: 'All Time', openingBalance, endingBalance: Number(payload.closingBalance ?? rows[rows.length - 1]?.runningBalance ?? openingBalance) });
             break;
           }
           case 'vendor': {
             const rows = (payload.ledger || []).map((row: any) => ({ date: row.date, narration: row.narration, type: row.type, amount: Number(row.amount), runningBalance: Number(row.runningBalance), weightKg: row.weightKg == null ? null : Number(row.weightKg), ratePerKg: row.ratePerKg == null ? null : Number(row.ratePerKg), rateCount: Number(row.rateCount ?? 0) }));
-            writeReport({ kind: 'statement', title: 'Vendor Statement', subjectLabel: 'Vendor', subjectName: payload.vendor?.name ?? 'Vendor', contact: payload.vendor?.contact, address: payload.vendor?.address, rows, periodLabel: 'All Time', endingBalance: rows[rows.length - 1]?.runningBalance ?? 0 });
+            const openingBalance = Number(payload.openingBalance ?? 0);
+            writeReport({ kind: 'statement', title: 'Vendor Statement', subjectLabel: 'Vendor', subjectName: payload.vendor?.name ?? 'Vendor', contact: payload.vendor?.contact, address: payload.vendor?.address, rows, periodLabel: 'All Time', openingBalance, endingBalance: Number(payload.closingBalance ?? rows[rows.length - 1]?.runningBalance ?? openingBalance) });
             break;
           }
           case 'cash': {
@@ -1151,6 +1156,7 @@ export default function ReportsPage() {
               )}
               {report.kind === 'statement' && (
                 <>
+                  <MetricCard label="Opening Balance" value={formatCurrency(report.openingBalance)} color="amber" sub="Brought forward" />
                   <MetricCard label="Total Transactions" value={String(report.rows.length)} color="blue" sub="In the given period" />
                   <MetricCard label="Closing Balance" value={formatCurrency(report.endingBalance)} color={report.endingBalance > 0 ? 'red' : 'emerald'} sub="Current outstanding" />
                 </>

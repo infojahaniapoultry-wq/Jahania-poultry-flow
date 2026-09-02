@@ -72,7 +72,21 @@ export class CustomersService {
       pricingOffsetDirection: dto.pricingOffsetDirection ?? existing.pricingOffsetDirection,
       pricingOffsetValue: dto.pricingOffsetValue ?? existing.pricingOffsetValue,
     });
-    return this.prisma.customer.update({ where: { id }, data: dto });
+    return this.prisma.customer.update({
+      where: { id },
+      data: {
+        ...dto,
+        ...(dto.openingBalance === undefined
+          ? {}
+          : {
+              // Correcting an opening balance must also correct the live
+              // amount receivable, without rewriting historical ledger rows.
+              currentBalance:
+                toNumber(existing.currentBalance) +
+                (dto.openingBalance - toNumber(existing.openingBalance)),
+            }),
+      },
+    });
   }
 
   async remove(id: number) {
