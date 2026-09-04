@@ -12,6 +12,8 @@ import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/bu
 import { isPhoneNumberLike, toOptionalPhoneNumber } from '@/lib/phone';
 import { formatLedgerRate, formatLedgerWeight, LedgerCommodityFields } from '@/lib/ledger';
 import { ONLINE_PROVIDER_OPTIONS } from '../finance/shared';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
 
 interface Driver {
   id: number;
@@ -112,6 +114,20 @@ export default function DriversPage() {
     if (!ledgerDriver) return;
     setSettlementForm({ amount: String(Number(ledgerDriver.advanceBalance ?? 0)), paymentMode: 'CASH', paymentProvider: 'JAZZCASH', paymentReference: '', narration: 'Driver balance settlement' });
     setSettlementOpen(true);
+  };
+
+  const handleShareLedger = () => {
+    if (!ledgerDriver) return;
+    const recentRows = [...advances]
+      .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())
+      .slice(0, 10);
+    openWhatsApp(makeWhatsAppMessage('Driver Ledger', [
+      `Driver: ${ledgerDriver.name}`,
+      `Outstanding advance: ${formatShareCurrency(ledgerDriver.advanceBalance)}`,
+      `Transactions: ${advances.length}`,
+      ...recentRows.map((row) => `${formatShareDate(row.date)} · ${row.type} · ${formatShareCurrency(row.amount)} · ${row.narration || 'Driver transaction'}`),
+      advances.length > recentRows.length ? `Showing the latest ${recentRows.length} transactions.` : '',
+    ]));
   };
 
   const handleSettlement = async (e: React.FormEvent) => {
@@ -395,6 +411,7 @@ export default function DriversPage() {
         footer={(
           <>
             <button className="px-5 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors" onClick={() => setLedgerDriver(null)}>Close Ledger</button>
+            <WhatsAppButton onClick={handleShareLedger} label="Share Ledger" title="Share driver ledger on WhatsApp" />
             <button className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-amber-100 transition-all flex items-center gap-2" onClick={openSettlement} disabled={!ledgerDriver || Number(ledgerDriver.advanceBalance ?? 0) <= 0}>
                Clear Net Balance
             </button>

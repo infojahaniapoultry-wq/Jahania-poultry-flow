@@ -12,6 +12,8 @@ import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/bu
 import { isPhoneNumberLike, toOptionalPhoneNumber } from '@/lib/phone';
 import { formatLedgerRate, formatLedgerWeight, LedgerCommodityFields } from '@/lib/ledger';
 import { VOICEPLS_URL } from '@/lib/branding';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
 
 interface Customer {
   id: number; shopName: string; contact?: string;
@@ -166,6 +168,21 @@ export default function CustomersPage() {
       setLedgerLoading(false);
     }
   }, []);
+
+  const handleShareLedger = () => {
+    if (!ledger || !ledgerCustomer) return;
+    const recentRows = [...ledger.entries]
+      .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())
+      .slice(0, 10);
+    openWhatsApp(makeWhatsAppMessage('Customer Ledger', [
+      `Customer: ${ledgerCustomer.shopName}`,
+      `Opening balance: ${formatShareCurrency(ledger.openingBalance)}`,
+      `Closing balance: ${formatShareCurrency(ledger.closingBalance)}`,
+      `Transactions: ${ledger.entries.length}`,
+      ...recentRows.map((row) => `${formatShareDate(row.date)} · ${row.type} · ${formatShareCurrency(row.amount)} · ${formatLedgerNarration(row)}`),
+      ledger.entries.length > recentRows.length ? `Showing the latest ${recentRows.length} transactions.` : '',
+    ]));
+  };
 
   useEffect(() => {
     const handleBusinessDataUpdated = () => {
@@ -592,7 +609,9 @@ export default function CustomersPage() {
       </Modal>
 
       {/* Ledger Modal */}
-      <Modal open={!!ledgerCustomer} onClose={() => setLedgerCustomer(null)} title={`Ledger Registry — ${ledgerCustomer?.shopName}`} size="lg">
+      <Modal open={!!ledgerCustomer} onClose={() => setLedgerCustomer(null)} title={`Ledger Registry — ${ledgerCustomer?.shopName}`} size="lg"
+        footer={ledger ? <WhatsAppButton onClick={handleShareLedger} label="Share Ledger" title="Share customer ledger on WhatsApp" /> : undefined}
+      >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100">
           <div>
             <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Account Holder</div>
