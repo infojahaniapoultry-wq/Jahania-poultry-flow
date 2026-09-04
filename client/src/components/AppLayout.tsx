@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
-import api from '@/lib/api';
+import api, { API_ACTIVITY_EVENT } from '@/lib/api';
 import {
   formatNotificationAmount,
   notificationCategoryMeta,
@@ -48,6 +48,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isDark, setIsDark] = useState(false);
   const [notifications, setNotifications] = useState<PendingNotificationsResponse | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [slowApiRequest, setSlowApiRequest] = useState(false);
+
+  useEffect(() => {
+    const handleApiActivity = (event: Event) => {
+      const detail = (event as CustomEvent<{ slow?: boolean }>).detail;
+      setSlowApiRequest(Boolean(detail?.slow));
+    };
+    window.addEventListener(API_ACTIVITY_EVENT, handleApiActivity);
+    return () => window.removeEventListener(API_ACTIVITY_EVENT, handleApiActivity);
+  }, []);
 
   const loadNotifications = useCallback(async (includeItems = false) => {
     try {
@@ -187,6 +197,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           isMobile ? 'ml-0' : (isSidebarOpen ? 'ml-[280px]' : 'ml-0')
         }`}
       >
+        {slowApiRequest && (
+          <div className="no-print pointer-events-none fixed inset-x-0 top-20 z-[70] flex justify-center px-4">
+            <div className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-900 shadow-lg shadow-amber-900/10">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+              Connecting to the farm database… it may take a few seconds on the first request.
+            </div>
+          </div>
+        )}
         {/* Top Header */}
         <header className="no-print sticky top-0 z-40 flex min-h-[76px] items-center justify-between border-b px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8" style={{ background: 'color-mix(in srgb, var(--bg-card) 88%, transparent)', borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-4">

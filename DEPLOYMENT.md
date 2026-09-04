@@ -14,8 +14,9 @@ This project is Prisma/PostgreSQL based and does not require a database SDK in
 the frontend. Create or select a Neon project, then copy the connection URLs
 from the Neon dashboard:
 
-- `DATABASE_URL`: pooled Neon connection for the Vercel API. If Neon provides
-  a pooled endpoint, add `connection_limit=1` and `sslmode=require`.
+- `DATABASE_URL`: pooled Neon connection for the Vercel API. Add
+  `connection_limit=1` and `sslmode=require` to keep serverless connections
+  bounded.
 - `DIRECT_URL`: direct Neon connection for Prisma migrations.
 
 The checked-in template is in [`server/.env.example`](./server/.env.example).
@@ -85,6 +86,19 @@ The API base URL will be similar to:
 ```text
 https://your-backend.vercel.app/api
 ```
+
+The public health check is `https://your-backend.vercel.app/api/health`. It
+checks both the NestJS function and the Neon database and helps confirm that a
+sleeping database has woken up.
+
+### Avoiding Neon cold starts
+
+Neon Free suspends an idle compute after five minutes. The first query wakes it
+again, so a short delay is expected. For a production workspace that must stay
+responsive, open Neon **Branches → your branch → Computes → Edit** and disable
+**Scale to zero** on a paid plan. The application also shows a database-waking
+indicator and retries safe read requests; it never retries invoice, purchase,
+payment, or other write requests.
 
 The server entrypoint is `server/api/index.ts`; it initializes Nest once and
 serves requests through Vercel's Node runtime.
