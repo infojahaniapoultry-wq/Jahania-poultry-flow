@@ -23,9 +23,9 @@ services:
       target: production
     container_name: poultry-api
     environment:
-      # Read the active database connection from server/.env.
-      # For Neon, use its pooled URL for DATABASE_URL and direct URL for DIRECT_URL.
-      DATABASE_URL: ${DATABASE_URL}
+      # Use the direct/pooled Neon URL for the long-lived local Nest/Prisma
+      # container. Keep the same database target in local and deployed builds.
+      DATABASE_URL: ${DIRECT_URL}
       DIRECT_URL: ${DIRECT_URL}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
