@@ -6,10 +6,13 @@ import Modal from '@/components/Modal';
 import { useAuth } from '@/lib/auth';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, Ban, Printer } from 'lucide-react';
+import { ArrowLeft, Ban, Download, Loader2, Printer } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { VOICEPLS_URL } from '@/lib/branding';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
+import { exportInvoicePdf } from '@/lib/invoice-pdf';
 
 interface InvoiceItem {
   id: number;
@@ -62,6 +65,7 @@ export default function InvoiceDetailPage() {
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api
@@ -103,6 +107,35 @@ export default function InvoiceDetailPage() {
     } finally {
       setVoiding(false);
     }
+  };
+
+  const handleDownload = async () => {
+    if (!invoice) return;
+    setDownloading(true);
+    try {
+      await exportInvoicePdf(invoice);
+      toast.success(`${invoice.invoiceNo} downloaded`);
+    } catch {
+      toast.error('Invoice download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleShare = () => {
+    if (!invoice) return;
+    const total = Number(invoice.totalAmount ?? 0);
+    const paid = Number(invoice.settledAmount ?? 0);
+    openWhatsApp(makeWhatsAppMessage('Sales Invoice', [
+      `Invoice: *${invoice.invoiceNo}*`,
+      `Date: ${formatShareDate(invoice.date)}`,
+      `Customer: ${invoice.customer.shopName}`,
+      `Total: ${formatShareCurrency(total)}`,
+      `Paid: ${formatShareCurrency(paid)}`,
+      `Outstanding: ${formatShareCurrency(Math.max(0, total - paid))}`,
+      `Payment: ${(invoice.paymentMode || 'CASH').toUpperCase()}`,
+      `Status: ${(invoice.paymentStatus || 'COMPLETED').toUpperCase()}`,
+    ]));
   };
 
   const driverCharge = Number(invoice.driverCharge ?? invoice.driver?.defaultCharge ?? 0);
@@ -153,6 +186,14 @@ export default function InvoiceDetailPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <WhatsAppButton onClick={handleShare} label="Share" title="Share invoice on WhatsApp" />
+              <button
+                className="btn btn-ghost bg-white border-slate-200 text-slate-700 shadow-sm disabled:opacity-50"
+                onClick={() => void handleDownload()}
+                disabled={downloading}
+              >
+                {downloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Download
+              </button>
               <button
                 className="btn btn-ghost bg-white border-slate-200 text-slate-700 shadow-sm"
                 onClick={() => window.print()}

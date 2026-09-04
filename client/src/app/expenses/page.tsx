@@ -8,6 +8,8 @@ import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
 import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/business-events';
 import { ArrowDownLeft, Banknote, Car, CheckCircle2, FileText, Lightbulb, Loader2, Plus, Printer, Receipt, Settings2, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
 
 interface ExpenseAccount {
   id: number;
@@ -177,6 +179,18 @@ export default function ExpenseManagementPage() {
   const driverTotal = useMemo(() => driverExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0), [driverExpenses]);
   const total = manualTotal + driverTotal;
 
+  const handleShareDailyReport = () => {
+    openWhatsApp(makeWhatsAppMessage('Daily Expense Report', [
+      `Date: ${formatShareDate(selectedDate)}`,
+      `Total expenses: ${formatShareCurrency(total)}`,
+      `Manual expenses: ${formatShareCurrency(manualTotal)}`,
+      `Driver transport: ${formatShareCurrency(driverTotal)}`,
+      `Records: ${records.length}`,
+      ...records.slice(0, 10).map((record) => `${record.category} · ${record.party} · ${formatShareCurrency(record.amount)}${record.reference ? ` · ${record.reference}` : ''}`),
+      records.length > 10 ? 'Showing the first 10 expense records.' : '',
+    ]));
+  };
+
   const setField = (field: string, value: string) => setForm((current) => ({ ...current, [field]: value }));
 
   const saveExpense = async (event: React.FormEvent) => {
@@ -232,6 +246,7 @@ export default function ExpenseManagementPage() {
               <DatePicker value={selectedDate} onChange={(value) => setSelectedDate(value || today)} />
             </div>
             <button type="button" onClick={() => window.print()} className="btn btn-ghost no-print"><Printer size={16} /> Print daily report</button>
+            <WhatsAppButton onClick={handleShareDailyReport} label="Share" title="Share daily expense report on WhatsApp" disabled={loading || records.length === 0} />
           </div>
         </div>
 

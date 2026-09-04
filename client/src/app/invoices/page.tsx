@@ -14,6 +14,8 @@ import { BUSINESS_DATA_UPDATED_EVENT, notifyBusinessDataUpdated } from '@/lib/bu
 import { getCachedPageData, setCachedPageData } from '@/lib/page-cache';
 import { drawVoiceplsPdfFooter } from '@/lib/branding';
 import { exportInvoicePdf, type InvoicePdfData } from '@/lib/invoice-pdf';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
 
 interface Customer {
   id: number;
@@ -122,6 +124,22 @@ type RegisterRow = {
 };
 
 const fmt = (n: string | number) => 'Rs. ' + Number(n ?? 0).toLocaleString('en-PK');
+
+function shareRegisterEntry(entry: RegisterRow) {
+  const isSale = entry.kind === 'SELLING';
+  const total = Number(entry.totalAmount ?? 0);
+  const paid = Number(entry.settledAmount ?? 0);
+  openWhatsApp(makeWhatsAppMessage(isSale ? 'Sales Invoice' : 'Purchase Receipt', [
+    `Reference: *${entry.documentNo}*`,
+    `Date: ${formatShareDate(entry.date)}`,
+    `${isSale ? 'Customer' : 'Vendor'}: ${entry.partyName}`,
+    `Total: ${formatShareCurrency(total)}`,
+    `Paid: ${formatShareCurrency(paid)}`,
+    `Balance: ${formatShareCurrency(Math.max(0, total - paid))}`,
+    `Payment: ${(entry.paymentMode || 'CASH').toUpperCase()}`,
+    `Status: ${getPaymentStatusMeta(entry.paymentStatus, entry.paymentMode, entry.settledAmount, entry.totalAmount).label}`,
+  ]));
+}
 
 function getPaymentStatusMeta(status?: string, mode?: string, settledAmount?: string | number, totalAmount?: string | number) {
   const value = (status ?? '').toUpperCase();
@@ -515,6 +533,23 @@ export default function InvoicesPage() {
     }
   };
 
+  const handleShareRegister = () => {
+    const sellingTotal = visibleEntries
+      .filter((entry) => entry.kind === 'SELLING')
+      .reduce((sum, entry) => sum + Number(entry.totalAmount ?? 0), 0);
+    const purchaseTotal = visibleEntries
+      .filter((entry) => entry.kind === 'PURCHASE')
+      .reduce((sum, entry) => sum + Number(entry.totalAmount ?? 0), 0);
+    openWhatsApp(makeWhatsAppMessage('Billing Register', [
+      `View: ${viewFilterLabel}`,
+      `Date: ${filterDate ? formatShareDate(filterDate) : 'All dates'}`,
+      `Records: ${visibleEntries.length}`,
+      `Selling total: ${formatShareCurrency(sellingTotal)}`,
+      `Purchase total: ${formatShareCurrency(purchaseTotal)}`,
+      `Combined total: ${formatShareCurrency(sellingTotal + purchaseTotal)}`,
+    ]));
+  };
+
   const handleDeleteInvoice = async (entry: RegisterRow) => {
     if (entry.kind !== 'SELLING' || !entry.invoiceId || user?.role !== 'ADMIN') return;
     const confirmed = window.confirm(
@@ -768,6 +803,12 @@ export default function InvoicesPage() {
             </Link>
             {r.kind === 'SELLING' && r.invoiceId && (
               <>
+                <WhatsAppButton
+                  onClick={() => shareRegisterEntry(r)}
+                  label=""
+                  title="Share invoice on WhatsApp"
+                  className="border-0 bg-transparent p-1 text-emerald-600 hover:bg-emerald-50"
+                />
                 <button
                   type="button"
                   className="rounded-lg p-1.5 text-slate-400 transition-all hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40"
@@ -801,6 +842,12 @@ export default function InvoicesPage() {
             )}
             {r.kind === 'PURCHASE' && r.purchaseId && (
               <>
+                <WhatsAppButton
+                  onClick={() => shareRegisterEntry(r)}
+                  label=""
+                  title="Share purchase on WhatsApp"
+                  className="border-0 bg-transparent p-1 text-emerald-600 hover:bg-emerald-50"
+                />
                 {user?.role === 'ADMIN' && (
                   <button
                     type="button"
@@ -908,6 +955,12 @@ export default function InvoicesPage() {
           <Download size={15} />
           {exportingPdf ? 'Preparing...' : 'Export PDF'}
         </button>
+        <WhatsAppButton
+          onClick={handleShareRegister}
+          label="Share"
+          title="Share this billing register on WhatsApp"
+          disabled={loading || visibleEntries.length === 0}
+        />
       </div>
 
       <div className="animate-fade-in">
