@@ -13,6 +13,8 @@ import { isPhoneNumberLike, toOptionalPhoneNumber } from '@/lib/phone';
 import { formatLedgerRate, formatLedgerWeight, LedgerCommodityFields } from '@/lib/ledger';
 import { VOICEPLS_URL } from '@/lib/branding';
 import DatePicker from '@/components/DatePicker';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
 
 interface Vendor {
   id: number; 
@@ -345,6 +347,21 @@ export default function VendorsPage() {
     void openLedger(vendor, '', true);
   };
 
+  const handleShareLedger = () => {
+    if (!ledger || !ledgerVendor) return;
+    const recentRows = [...ledger.entries]
+      .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())
+      .slice(0, 10);
+    openWhatsApp(makeWhatsAppMessage('Vendor Ledger', [
+      `Vendor: ${ledgerVendor.name}`,
+      `Opening balance: ${formatShareCurrency(ledger.openingBalance)}`,
+      `Closing balance: ${formatShareCurrency(ledger.closingBalance)}`,
+      `Transactions: ${ledger.entries.length}`,
+      ...recentRows.map((row) => `${formatShareDate(row.date)} · ${row.type} · ${formatShareCurrency(row.amount)} · ${formatLedgerNarration(row)}${row.paymentMode ? ` · ${row.paymentMode}` : ''}`),
+      ledger.entries.length > recentRows.length ? `Showing the latest ${recentRows.length} transactions.` : '',
+    ]));
+  };
+
   const vendorFormContent = (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -457,7 +474,9 @@ export default function VendorsPage() {
         {vendorFormContent}
       </Modal>
 
-      <Modal open={!!ledgerVendor} onClose={() => setLedgerVendor(null)} title={`Financial Ledger — ${ledgerVendor?.name}`} size="xl">
+      <Modal open={!!ledgerVendor} onClose={() => setLedgerVendor(null)} title={`Financial Ledger — ${ledgerVendor?.name}`} size="xl"
+        footer={ledger ? <WhatsAppButton onClick={handleShareLedger} label="Share Ledger" title="Share vendor ledger on WhatsApp" /> : undefined}
+      >
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
              <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">

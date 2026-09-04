@@ -11,6 +11,8 @@ import { getCachedPageData, setCachedPageData } from '@/lib/page-cache';
 import { Plus, RefreshCw, Search, ArrowUpRight, ArrowDownLeft, Wallet, Landmark, Loader2, MoreVertical, FileText, Truck, ShoppingBag, Banknote } from 'lucide-react';
 import DatePicker from '@/components/DatePicker';
 import { ONLINE_PROVIDER_OPTIONS } from '../finance/shared';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
 
 interface Customer { id: number; shopName: string; }
 interface Vendor { id: number; name: string; }
@@ -219,6 +221,21 @@ export default function TransactionsPage() {
     }, { in: 0, out: 0 });
   }, [visibleRows]);
 
+  const handleShareLedger = () => {
+    const recentRows = [...visibleRows]
+      .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())
+      .slice(0, 10);
+    openWhatsApp(makeWhatsAppMessage('Financial Ledger', [
+      `Period: ${filters.startDate || 'All dates'}${filters.endDate ? ` to ${filters.endDate}` : ''}`,
+      `Transactions: ${visibleRows.length}`,
+      `Money in: ${formatShareCurrency(summary.in)}`,
+      `Money out: ${formatShareCurrency(summary.out)}`,
+      `Net cash: ${formatShareCurrency(summary.in - summary.out)}`,
+      ...recentRows.map((row) => `${formatShareDate(row.date)} · ${row.sourceType} · ${row.partyName || row.narration || 'Ledger entry'} · ${formatShareCurrency(row.amount)}`),
+      visibleRows.length > recentRows.length ? `Showing the latest ${recentRows.length} transactions.` : '',
+    ]));
+  };
+
   const columns = [
     { 
       key: 'date', 
@@ -301,6 +318,7 @@ export default function TransactionsPage() {
           <p className="text-slate-500 font-medium tracking-tight">Consolidated view of all cash flows, bank transfers, and manual adjustments.</p>
         </div>
         <div className="flex items-center gap-3">
+          <WhatsAppButton onClick={handleShareLedger} label="Share" title="Share financial ledger on WhatsApp" disabled={loading || visibleRows.length === 0} />
           <button onClick={() => setAccountOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-all active:scale-95">
             <Wallet size={18} /> Accounts
           </button>
