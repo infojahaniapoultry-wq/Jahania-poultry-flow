@@ -271,7 +271,7 @@ export default function ExpenseManagementPage() {
                   {categoryOptions.map((option) => {
                     const Icon = option.icon;
                     const active = form.category === option.value;
-                    return <button key={option.value} type="button" onClick={() => setField('category', option.value)} className={`flex min-h-[78px] flex-col items-start justify-between rounded-2xl border p-3 text-left transition-all ${active ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/10' : 'border-slate-200 bg-slate-50 hover:border-emerald-200 hover:bg-white'}`}><span className={`grid h-7 w-7 place-items-center rounded-lg ${option.color}`}><Icon size={14} /></span><span><span className="block text-xs font-black text-slate-800">{option.label}</span><span className="mt-0.5 block text-[9px] font-medium leading-3 text-slate-400">{option.hint}</span></span></button>;
+                    return <button key={option.value} type="button" aria-pressed={active} onClick={() => setField('category', option.value)} className={`flex min-h-[78px] flex-col items-start justify-between rounded-2xl border p-3 text-left transition-all ${active ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/10' : 'border-slate-200 bg-slate-50 hover:border-emerald-200 hover:bg-white'}`}><span className={`grid h-7 w-7 place-items-center rounded-lg ${option.color}`}><Icon size={14} /></span><span><span className={`block text-xs font-black ${active ? 'text-emerald-950' : 'text-slate-800'}`}>{option.label}</span><span className={`mt-0.5 block text-[9px] font-medium leading-3 ${active ? 'text-emerald-800' : 'text-slate-400'}`}>{option.hint}</span></span></button>;
                   })}
                 </div>
               </div>
