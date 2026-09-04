@@ -22,6 +22,8 @@ import DatePicker from '@/components/DatePicker';
 import { BUSINESS_DATA_UPDATED_EVENT } from '@/lib/business-events';
 import { formatLedgerRate, formatLedgerWeight, LedgerCommodityFields } from '@/lib/ledger';
 import { VOICEPLS_FOOTER, VOICEPLS_URL, drawVoiceplsPdfFooter } from '@/lib/branding';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
 
 type ReportTab = 'pnl' | 'customer' | 'vendor' | 'cash' | 'expense' | 'recovery';
 
@@ -1024,6 +1026,63 @@ export default function ReportsPage() {
     }
   }, [report]);
 
+  const handleShareReport = useCallback(() => {
+    if (!report) {
+      toast.error('Generate the report first');
+      return;
+    }
+
+    let title = REPORT_TABS.find((tab) => tab.id === report.kind)?.label ?? 'Report';
+    let lines: string[] = [];
+
+    if (report.kind === 'pnl') {
+      lines = [
+        `Date: ${formatShareDate(report.data.date)}`,
+        `Daily profit / loss: ${formatShareCurrency(report.data.dailyProfit)}`,
+        `Gross profit: ${formatShareCurrency(report.data.grossProfit)}`,
+        `Purchases: ${formatShareCurrency(report.data.purchaseAmt)}`,
+        `Sales: ${formatShareCurrency(report.data.salesAmt)}`,
+        `Expenses: ${formatShareCurrency(report.data.totalExpenses)}`,
+      ];
+    } else if (report.kind === 'statement') {
+      title = report.title;
+      lines = [
+        `${report.subjectLabel}: ${report.subjectName}`,
+        `Period: ${report.periodLabel}`,
+        `Opening balance: ${formatShareCurrency(report.openingBalance)}`,
+        `Closing balance: ${formatShareCurrency(report.endingBalance)}`,
+        `Transactions: ${report.rows.length}`,
+        ...report.rows.slice(0, 10).map((row) => `${formatShareDate(row.date)} · ${row.type} · ${formatShareCurrency(row.amount)} · ${row.narration || 'Ledger entry'}`),
+      ];
+    } else if (report.kind === 'cash') {
+      lines = [
+        `Period: ${report.periodLabel}`,
+        `Receipts: ${formatShareCurrency(report.totalReceipts)}`,
+        `Payments: ${formatShareCurrency(report.totalPayments)}`,
+        `Closing balance: ${formatShareCurrency(report.endingBalance)}`,
+        `Entries: ${report.rows.length}`,
+        ...report.rows.slice(0, 10).map((row) => `${formatShareDate(row.date)} · ${row.type} · ${formatShareCurrency(row.amount)} · ${row.narration || 'Cash entry'}`),
+      ];
+    } else if (report.kind === 'expense') {
+      lines = [
+        `Period: ${report.periodLabel}`,
+        `Total expenses: ${formatShareCurrency(report.grandTotal)}`,
+        `Expense accounts: ${report.rows.length}`,
+        ...report.rows.slice(0, 10).map((row) => `${row.expenseAccount} · ${row.category} · ${formatShareCurrency(row.total)}`),
+      ];
+    } else {
+      lines = [
+        `Period: ${report.periodLabel}`,
+        `Total recovered: ${formatShareCurrency(report.total)}`,
+        `Payments received: ${report.rows.length}`,
+        ...report.rows.slice(0, 10).map((row) => `${formatShareDate(row.date)} · ${row.customer || 'Customer'} · ${formatShareCurrency(row.amount)} · ${row.paymentMode}`),
+      ];
+    }
+
+    if ('rows' in report && report.rows.length > 10) lines.push('Showing the first 10 rows from this report.');
+    openWhatsApp(makeWhatsAppMessage(title, lines));
+  }, [report]);
+
   return (
     <AppLayout>
       <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
@@ -1039,6 +1098,7 @@ export default function ReportsPage() {
             {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
             {exportingPdf ? 'Preparing...' : 'Export PDF'}
           </button>
+          <WhatsAppButton onClick={handleShareReport} label="Share" title="Share this report on WhatsApp" disabled={!report} />
         </div>
       </div>
 

@@ -6,9 +6,12 @@ import Modal from '@/components/Modal';
 import { useAuth } from '@/lib/auth';
 import api from '@/lib/api';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, Ban, Loader2, Printer } from 'lucide-react';
+import { ArrowLeft, Ban, Download, Loader2, Printer } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import WhatsAppButton from '@/components/WhatsAppButton';
+import { formatShareCurrency, formatShareDate, makeWhatsAppMessage, openWhatsApp } from '@/lib/whatsapp';
+import { exportPurchasePdf } from '@/lib/purchase-pdf';
 
 interface Purchase {
   id: number;
@@ -52,6 +55,7 @@ export default function PurchaseDetailPage() {
   const [voidOpen, setVoidOpen] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api
@@ -93,6 +97,37 @@ export default function PurchaseDetailPage() {
     } finally {
       setVoiding(false);
     }
+  };
+
+  const handleDownload = async () => {
+    if (!purchase) return;
+    setDownloading(true);
+    try {
+      await exportPurchasePdf(purchase);
+      toast.success(`${purchase.purchaseNo} downloaded`);
+    } catch {
+      toast.error('Purchase download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleShare = () => {
+    if (!purchase) return;
+    const total = Number(purchase.purchaseAmount ?? 0);
+    const paid = Number(purchase.settledAmount ?? 0);
+    openWhatsApp(makeWhatsAppMessage('Purchase Receipt', [
+      `Receipt: *${purchase.purchaseNo}*`,
+      `Date: ${formatShareDate(purchase.date)}`,
+      `Vendor: ${vendorName}`,
+      `Weight: ${Number(purchase.weightKg ?? 0).toLocaleString('en-PK')} kg`,
+      `Rate: ${formatShareCurrency(purchase.ratePerKg)}/kg`,
+      `Total: ${formatShareCurrency(total)}`,
+      `Paid: ${formatShareCurrency(paid)}`,
+      `Balance: ${formatShareCurrency(Math.max(0, total - paid))}`,
+      `Payment: ${(purchase.paymentMode || 'CASH').toUpperCase()}`,
+      `Status: ${(purchase.paymentStatus || 'COMPLETED').toUpperCase()}`,
+    ]));
   };
 
   const settledAmount = Number(purchase.settledAmount ?? 0);
@@ -143,6 +178,14 @@ export default function PurchaseDetailPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              <WhatsAppButton onClick={handleShare} label="Share" title="Share purchase on WhatsApp" />
+              <button
+                className="btn btn-ghost bg-white border-slate-200 text-slate-700 shadow-sm disabled:opacity-50"
+                onClick={() => void handleDownload()}
+                disabled={downloading}
+              >
+                {downloading ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Download
+              </button>
               <button
                 className="btn btn-ghost bg-white border-slate-200 text-slate-700 shadow-sm"
                 onClick={() => window.print()}
