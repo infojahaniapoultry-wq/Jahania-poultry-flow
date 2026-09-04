@@ -1,6 +1,6 @@
 # 🐔 Poultry Business Management System
 
-A full-stack business management system built for **Jahania Poultry Service** to manage invoices, purchases, customers, vendors, ledgers, transactions, and financial reports.
+A full-stack business management system built for **Jahania Poultry Service** to manage invoices, purchases, customers, vendors, ledgers, transactions, and financial reports
 
 ---
 
