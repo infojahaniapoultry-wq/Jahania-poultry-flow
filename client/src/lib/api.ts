@@ -8,7 +8,7 @@ import { clearAuthSession, loadStoredAuthToken } from './auth-session';
 const configuredApiUrl =
   process.env.NEXT_PUBLIC_API_URL ||
   (process.env.NODE_ENV === 'production'
-    ? 'https://jahania-poultry-flow-beta.vercel.app/api'
+    ? 'https://jahania-poultry-flow-backend.vercel.app/api'
     : 'http://localhost:3010/api');
 const apiBaseUrl = configuredApiUrl.replace(/\/+$/, '').endsWith('/api')
   ? configuredApiUrl.replace(/\/+$/, '')
@@ -33,9 +33,13 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401 && typeof window !== 'undefined') {
+      const hadSession = Boolean(loadStoredAuthToken());
       clearAllCachedPageData();
       localStorage.removeItem(REPORT_CACHE_STORAGE_KEY);
       clearAuthSession();
+      if (hadSession && !window.location.pathname.startsWith('/login')) {
+        window.location.replace('/login?reason=session-expired');
+      }
     }
     return Promise.reject(err);
   }

@@ -41,13 +41,21 @@ export default function Modal({ open, onClose, title, children, footer, size = '
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal Content */}
-      <div className={`relative w-full ${sizeClasses[size]} bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh] animate-slide-up`}>
+      <div
+        className={`relative w-full ${sizeClasses[size]} rounded-2xl shadow-2xl border flex flex-col max-h-[90vh] animate-slide-up`}
+        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-md rounded-t-2xl z-10">
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight">{title}</h2>
+        <div
+          className="px-6 py-4 border-b flex items-center justify-between sticky top-0 backdrop-blur-md rounded-t-2xl z-10"
+          style={{ background: 'color-mix(in srgb, var(--bg-card) 92%, transparent)', borderColor: 'var(--border)' }}
+        >
+          <h2 className="text-lg font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{title}</h2>
           <button 
             onClick={onClose} 
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+            className="p-2 rounded-xl transition-all hover:bg-black/5 dark:hover:bg-white/10"
+            style={{ color: 'var(--text-muted)' }}
+            aria-label="Close dialog"
           >
             <X size={20} />
           </button>
@@ -60,7 +68,10 @@ export default function Modal({ open, onClose, title, children, footer, size = '
 
         {/* Footer */}
         {footer && (
-          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3 rounded-b-2xl">
+          <div
+            className="px-6 py-4 border-t flex justify-end gap-3 rounded-b-2xl"
+            style={{ background: 'color-mix(in srgb, var(--bg-muted) 55%, transparent)', borderColor: 'var(--border)' }}
+          >
             {footer}
           </div>
         )}

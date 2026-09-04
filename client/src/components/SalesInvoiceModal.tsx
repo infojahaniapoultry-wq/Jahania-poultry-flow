@@ -68,7 +68,7 @@ const emptyItem = (ratePerKg = ''): Item => ({
 const fmt = (n: string | number) => 'Rs. ' + Number(n ?? 0).toLocaleString('en-PK');
 
 export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId }: SalesInvoiceModalProps) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const today = getPKTDate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -142,6 +142,7 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
   }, []);
 
   const loadBasics = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     try {
       const [customerRes, driverRes] = await Promise.all([
@@ -150,8 +151,8 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
       ]);
       setCustomers(customerRes.data ?? []);
       setDrivers(driverRes.data ?? []);
-    } catch {
-      toast.error('Failed to load selling form');
+    } catch (error: any) {
+      if (error?.response?.status !== 401) toast.error('Failed to load selling form');
     } finally {
       setLoading(false);
     }
@@ -189,7 +190,7 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
       // can preserve them as a manual override during an edit.
       setManualRateOverride(user?.role === 'ADMIN');
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to load invoice');
+      if (error.response?.status !== 401) toast.error(error.response?.data?.message || 'Failed to load invoice');
       onClose();
     } finally {
       setLoading(false);
@@ -204,15 +205,17 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
       setRateError('');
     } catch (error: any) {
       setMarketRate(null);
-      setRateError(error.response?.data?.message || 'No market rates are available for this invoice date');
+      if (error.response?.status !== 401) {
+        setRateError(error.response?.data?.message || 'No market rates are available for this invoice date');
+      }
     } finally {
       setRateLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (open && form.date) void loadMarketRate(form.date);
-  }, [form.date, loadMarketRate, open]);
+    if (open && form.date && !authLoading && user) void loadMarketRate(form.date);
+  }, [authLoading, form.date, loadMarketRate, open, user]);
 
   const calculatedRate = useMemo(() => {
     if (!selectedCustomer || !marketRate) return null;
@@ -230,11 +233,11 @@ export default function SalesInvoiceModal({ open, onClose, onCreated, invoiceId 
   }, [calculatedRate, manualRateOverride]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || authLoading || !user) return;
     resetForm();
     void loadBasics();
     if (invoiceId) void loadInvoice(invoiceId);
-  }, [invoiceId, loadBasics, loadInvoice, open, resetForm]);
+  }, [authLoading, invoiceId, loadBasics, loadInvoice, open, resetForm, user]);
 
   useEffect(() => {
     if (!open) return;

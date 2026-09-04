@@ -238,6 +238,36 @@ export default function PurchaseDetailPage() {
                 </div>
               </div>
 
+              <div className="invoice-print-table overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 sm:p-5">
+                <div className="mb-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Line Items</div>
+                    <div className="mt-1 text-lg font-black text-slate-900">Chicken Purchase Breakdown</div>
+                  </div>
+                  <div className="text-sm text-slate-500">1 item</div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                        <th className="px-3 py-3">Description</th>
+                        <th className="px-3 py-3 text-right">Weight</th>
+                        <th className="px-3 py-3 text-right">Rate / Kg</th>
+                        <th className="px-3 py-3 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-4 font-bold text-slate-800">Broiler Chicken Lot</td>
+                        <td className="px-3 py-4 text-right font-bold text-slate-700">{Number(purchase.weightKg ?? 0).toFixed(2)} kg</td>
+                        <td className="px-3 py-4 text-right text-slate-600">{fmt(purchase.ratePerKg)}</td>
+                        <td className="px-3 py-4 text-right font-black text-slate-900">{fmt(purchaseAmount)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               <div className="grid gap-4 lg:grid-cols-[1fr_320px] items-start">
                 <div className="invoice-print-notes rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:p-5">
                   <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Notes</div>

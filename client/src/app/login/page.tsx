@@ -14,6 +14,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => { if (!authLoading && user) router.replace('/dashboard'); }, [user, authLoading, router]);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('reason') !== 'session-expired') return;
+    toast.error('Your session expired. Please sign in again.');
+    window.history.replaceState({}, '', '/login');
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
